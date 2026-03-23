@@ -1,0 +1,219 @@
+package com.example.graduationproject.ui.screens
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.graduationproject.ui.theme.GraduationProjectTheme
+
+// 延續專案色調
+private val BeigeBg = Color(0xFFFDFCF9)
+private val PrimaryPeach = Color(0xFFFF8A65)
+private val SecondaryTeal = Color(0xFF4DB6AC)
+private val TextMain = Color(0xFF201A18)
+private val ErrorRed = Color(0xFFB00020)
+
+@Composable
+fun LoginScreen(
+    onNavigateToRegister: () -> Unit = {},
+    onLoginSuccess: () -> Unit = {}
+) {
+    var account by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) } // 模擬錯誤訊息
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = BeigeBg
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            // 吉祥物/Logo 佔位
+            Icon(
+                imageVector = Icons.Default.SentimentVerySatisfied,
+                contentDescription = null,
+                modifier = Modifier.size(80.dp),
+                tint = PrimaryPeach
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "歡迎回來",
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextMain
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Text(
+                text = "請登入以繼續您的健康旅程",
+                fontSize = 18.sp,
+                color = TextMain.copy(alpha = 0.6f)
+            )
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+            // 帳號輸入框
+            OutlinedTextField(
+                value = account,
+                onValueChange = { 
+                    account = it
+                    errorMessage = null // 輸入時清除錯誤
+                },
+                label = { Text("帳號", fontSize = 18.sp) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                isError = errorMessage != null,
+                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                textStyle = LocalTextStyle.current.copy(fontSize = 18.sp)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 密碼輸入框
+            OutlinedTextField(
+                value = password,
+                onValueChange = { 
+                    password = it
+                    errorMessage = null 
+                },
+                label = { Text("密碼", fontSize = 18.sp) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                singleLine = true,
+                isError = errorMessage != null,
+                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                trailingIcon = {
+                    val image = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(imageVector = image, contentDescription = if (passwordVisible) "隱藏密碼" else "顯示密碼")
+                    }
+                },
+                textStyle = LocalTextStyle.current.copy(fontSize = 18.sp)
+            )
+
+            // 錯誤訊息顯示
+            if (errorMessage != null) {
+                Text(
+                    text = errorMessage!!,
+                    color = ErrorRed,
+                    fontSize = 14.sp,
+                    modifier = Modifier.align(Alignment.Start).padding(start = 16.dp, top = 4.dp)
+                )
+            }
+
+            // 忘記密碼按鈕
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                TextButton(onClick = { /* 忘記密碼邏輯 */ }) {
+                    Text("忘記密碼？", color = TextMain.copy(alpha = 0.6f), fontSize = 16.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // 登入按鈕
+            Button(
+                onClick = {
+                    if (account.isEmpty() || password.isEmpty()) {
+                        errorMessage = "帳號或密碼不能為空"
+                    } else {
+                        onLoginSuccess()
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(60.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryPeach),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text(text = "登入", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 前往註冊連結
+            TextButton(onClick = onNavigateToRegister) {
+                Text(
+                    text = "還沒有帳號？ 前往註冊",
+                    color = SecondaryTeal,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // 第三方登入區
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Divider(modifier = Modifier.weight(1f), color = TextMain.copy(alpha = 0.1f))
+                Text(
+                    text = " 或使用以下方式登入 ",
+                    fontSize = 14.sp,
+                    color = TextMain.copy(alpha = 0.4f),
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+                Divider(modifier = Modifier.weight(1f), color = TextMain.copy(alpha = 0.1f))
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // LINE 登入
+                OutlinedButton(
+                    onClick = { /* LINE 登入 */ },
+                    modifier = Modifier.weight(1f).height(56.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.dp)
+                ) {
+                    Icon(Icons.Default.Chat, contentDescription = null, tint = Color(0xFF00B900))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("LINE", fontSize = 16.sp, color = TextMain)
+                }
+
+                // Google 登入
+                OutlinedButton(
+                    onClick = { /* Google 登入 */ },
+                    modifier = Modifier.weight(1f).height(56.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.dp)
+                ) {
+                    Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color(0xFFEA4335))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Google", fontSize = 16.sp, color = TextMain)
+                }
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true, widthDp = 412, heightDp = 892)
+@Composable
+fun LoginScreenPreview() {
+    GraduationProjectTheme {
+        LoginScreen()
+    }
+}
