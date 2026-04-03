@@ -39,10 +39,33 @@ fun AppNavigation() {
                 onNavigateToRegister = {
                     navController.navigate("register")
                 },
-                onLoginSuccess = {
-                    // 登入成功後跳轉到首頁，並清空返回棧，防止按返回鍵回到登入頁
-                    navController.navigate("home") {
-                        popUpTo("login") { inclusive = true }
+                // 💡 修正：接收 API 傳回的 role 與 accountId
+                onLoginSuccess = { role, accountId ->
+
+                    // 這裡未來可以加入 SharedPreferences，把 accountId 存進手機本機
+
+                    // 💡 優化：根據不同的身分 (role) 跳轉到專屬的首頁
+                    when (role) {
+                        "elder" -> {
+                            navController.navigate("elder_home") {
+                                // 清空返回棧，防止按返回鍵回到登入頁
+                                popUpTo("login") { inclusive = true }
+                            }
+                        }
+                        "doctor" -> {
+                            // 假設未來有醫療人員儀表板
+                            // navController.navigate("doctor_dashboard") { ... }
+                        }
+                        "family" -> {
+                            // 假設未來有家屬觀看頁面
+                            // navController.navigate("family_home") { ... }
+                        }
+                        else -> {
+                            // 預設防呆機制，跳轉到長者首頁
+                            navController.navigate("elder_home") {
+                                popUpTo("login") { inclusive = true }
+                            }
+                        }
                     }
                 }
             )
