@@ -21,6 +21,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.graduationproject.ui.theme.GraduationProjectTheme
+import java.util.Calendar
 
 // 延續專案色調
 private val BeigeBg = Color(0xFFFDFCF9)
@@ -34,7 +35,7 @@ data class CommunityUser(
     val level: String,
     val avatarColor: Color,
     val weeklyExercise: Int,
-    val todaySteps: Int,
+    val weeklyExp: Int, // 原 todaySteps 改為 weeklyExp
     val initialLikes: Int,
     val rank: Int
 )
@@ -46,13 +47,32 @@ fun CommunityScreen() {
     val tabs = listOf("社區排行榜", "我的好友")
 
     val leaderboardUsers = listOf(
-        CommunityUser("張奶奶", "Lv.12 健走達人", Color(0xFFFFCDD2), 5, 6230, 42, 1),
-        CommunityUser("李爺爺", "Lv.10 太極宗師", Color(0xFFC8E6C9), 4, 4500, 38, 2),
-        CommunityUser("王大叔", "Lv.8 活力十足", Color(0xFFBBDEFB), 6, 8100, 25, 3),
-        CommunityUser("林阿姨", "Lv.7 晨練標兵", Color(0xFFF0F4C3), 3, 3200, 19, 4)
+        CommunityUser("張奶奶", "Lv.12 訓練達人", Color(0xFFFFCDD2), 5, 2150, 42, 1),
+        CommunityUser("李爺爺", "Lv.10 復健宗師", Color(0xFFC8E6C9), 4, 1980, 38, 2),
+        CommunityUser("王大叔", "Lv.8 活力楷模", Color(0xFFBBDEFB), 6, 1750, 25, 3),
+        CommunityUser("林阿姨", "Lv.7 全能長青樹", Color(0xFFF0F4C3), 3, 1520, 19, 4)
     )
 
     val currentUser = CommunityUser("陳爺爺", "Lv.3 活力長青", PrimaryPeach.copy(alpha = 0.2f), 2, 1250, 12, 15)
+
+    // 動態計算本週日期範圍 (週一到週日)，相容 API 24
+    val dateRangeStr = remember {
+        val calendar = Calendar.getInstance()
+        calendar.firstDayOfWeek = Calendar.MONDAY
+        // 往前找最近的一個週一
+        while (calendar.get(Calendar.DAY_OF_WEEK) != Calendar.MONDAY) {
+            calendar.add(Calendar.DATE, -1)
+        }
+        val startMonth = calendar.get(Calendar.MONTH) + 1
+        val startDay = calendar.get(Calendar.DAY_OF_MONTH)
+
+        // 週一加六天即為週日
+        calendar.add(Calendar.DATE, 6)
+        val endMonth = calendar.get(Calendar.MONTH) + 1
+        val endDay = calendar.get(Calendar.DAY_OF_MONTH)
+        
+        "$startMonth/$startDay - $endMonth/$endDay"
+    }
 
     Column(
         modifier = Modifier
@@ -64,7 +84,7 @@ fun CommunityScreen() {
             selectedTabIndex = selectedTabIndex,
             containerColor = BeigeBg,
             contentColor = PrimaryPeach,
-            modifier = Modifier.height(72.dp), // 增加高度至 72dp
+            modifier = Modifier.height(72.dp),
             indicator = { TabRowDefaults.PrimaryIndicator(
                 modifier = Modifier.tabIndicatorOffset(selectedTabIndex),
                 width = 80.dp,
@@ -76,11 +96,11 @@ fun CommunityScreen() {
                 Tab(
                     selected = isSelected,
                     onClick = { selectedTabIndex = index },
-                    modifier = Modifier.fillMaxHeight(), // 填滿高度
+                    modifier = Modifier.fillMaxHeight(),
                     text = { 
                         Text(
                             text = title, 
-                            fontSize = 20.sp, // 稍微放大字體
+                            fontSize = 20.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             color = if (isSelected) PrimaryPeach else TextSub
                         ) 
@@ -89,14 +109,39 @@ fun CommunityScreen() {
             }
         }
 
-        // 固定顯示「我的排名」
+        // 固定顯示「我的排名」與週期提示
+        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Text(
+                    text = "社區排行榜",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextMain
+                )
+                Text(
+                    text = "本週排行 ($dateRangeStr)",
+                    fontSize = 14.sp,
+                    color = TextSub
+                )
+            }
+            Text(
+                text = "排行榜將於週日 23:59 結算",
+                fontSize = 12.sp,
+                color = TextSub.copy(alpha = 0.7f)
+            )
+        }
+
         MyRankHeader(user = currentUser)
 
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 24.dp),
-            contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             items(leaderboardUsers) { user ->
@@ -111,32 +156,48 @@ fun MyRankHeader(user: CommunityUser) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+            .padding(horizontal = 24.dp, vertical = 8.dp),
         color = SecondaryTeal.copy(alpha = 0.1f),
         shape = RoundedCornerShape(24.dp),
         border = androidx.compose.foundation.BorderStroke(2.dp, SecondaryTeal.copy(alpha = 0.3f))
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "第 ${user.rank} 名",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = SecondaryTeal
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = "我的目前表現", fontSize = 14.sp, color = TextSub)
-                Text(text = user.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextMain)
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "第 ${user.rank} 名",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = SecondaryTeal
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = "本週累積表現", fontSize = 14.sp, color = TextSub)
+                    Text(text = user.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextMain)
+                }
+                Text(
+                    text = "${user.weeklyExp} 經驗值",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    color = SecondaryTeal
+                )
             }
-            Text(
-                text = "${user.todaySteps} 步",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextMain
-            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // 超越提示
+            Surface(
+                color = Color.White.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    text = "💡 再獲得 50 經驗值即可超越上一名！",
+                    fontSize = 13.sp,
+                    color = TextSub,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+            }
         }
     }
 }
@@ -160,7 +221,7 @@ fun CommunityUserCard(user: CommunityUser) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("🏆 本週運動：${user.weeklyExercise} 次", fontSize = 20.sp, color = TextMain)
-                    Text("👣 今日步數：${user.todaySteps} 步", fontSize = 20.sp, color = TextMain)
+                    Text("⭐ 本週經驗值：${user.weeklyExp} 經驗值", fontSize = 20.sp, color = TextMain)
                     Text("❤️ 收到愛心：$likesCount 個", fontSize = 20.sp, color = PrimaryPeach)
                 }
             },
@@ -187,8 +248,8 @@ fun CommunityUserCard(user: CommunityUser) {
                 text = user.rank.toString(),
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Black,
-                color = TextSub.copy(alpha = 0.3f),
-                modifier = Modifier.width(32.dp)
+                color = if (user.rank <= 3) PrimaryPeach else TextSub.copy(alpha = 0.3f),
+                modifier = Modifier.width(36.dp)
             )
 
             // 頭像
@@ -202,38 +263,41 @@ fun CommunityUserCard(user: CommunityUser) {
                 Icon(Icons.Default.SentimentVerySatisfied, null, modifier = Modifier.size(36.dp), tint = Color.White)
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = user.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = TextMain)
-                Text(text = user.level, fontSize = 16.sp, color = SecondaryTeal, fontWeight = FontWeight.Medium)
+                Text(text = user.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextMain)
+                Text(text = user.level, fontSize = 14.sp, color = SecondaryTeal, fontWeight = FontWeight.Medium)
+                // 顯示他人的經驗值
+                Text(
+                    text = "⭐ ${user.weeklyExp} 經驗值",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = PrimaryPeach
+                )
             }
 
-            // 優化後的愛心按鈕
+            // 愛心按鈕視覺層級調淡
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                FilledTonalIconButton(
+                IconButton(
                     onClick = { 
                         isLiked = !isLiked
                         if (isLiked) likesCount++ else likesCount--
                     },
-                    modifier = Modifier.size(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = if (isLiked) PrimaryPeach.copy(alpha = 0.2f) else BeigeBg,
-                        contentColor = if (isLiked) PrimaryPeach else TextSub
-                    )
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = "送愛心",
-                        modifier = Modifier.size(32.dp)
+                        tint = if (isLiked) PrimaryPeach else TextSub.copy(alpha = 0.4f),
+                        modifier = Modifier.size(28.dp)
                     )
                 }
                 Text(
                     text = likesCount.toString(),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isLiked) PrimaryPeach else TextSub
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isLiked) PrimaryPeach else TextSub.copy(alpha = 0.4f)
                 )
             }
         }

@@ -4,76 +4,91 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.graduationproject.ui.screens.ElderlyDashboard
 import com.example.graduationproject.ui.screens.LoginScreen
 import com.example.graduationproject.ui.screens.RegisterScreen
+import com.example.graduationproject.ui.screens.SettingsScreen
+import com.example.graduationproject.ui.screens.SurveyScreen
 import com.example.graduationproject.ui.theme.GraduationProjectTheme
+import com.example.graduationproject.ui.theme.LocalFontScale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            GraduationProjectTheme {
-                AppNavigation()
+            // 雖然移除設定頁面的調整功能，但仍保留狀態以支援 Theme 的字體保護邏輯
+            val fontScale by remember { mutableFloatStateOf(1.0f) }
+            
+            GraduationProjectTheme(fontScale = fontScale) {
+                CompositionLocalProvider(LocalFontScale provides fontScale) {
+                    AppNavigation()
+                }
             }
         }
     }
 }
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
     val navController = rememberNavController()
 
     NavHost(
         navController = navController,
         startDestination = "login"
     ) {
-        // 登入頁面
         composable("login") {
             LoginScreen(
-                onNavigateToRegister = {
-                    navController.navigate("register")
-                },
-                onLoginSuccess = { role, accountId ->
-                    when (role) {
-                        "elder" -> {
-                            navController.navigate("home/$accountId") {
-                                popUpTo("login") { inclusive = true }
-                            }
-                        }
-                        "medical_stuff" -> {
-                        }
-                        "family" -> {
-                        }
-                        else -> {
-                            navController.navigate("home") {
-                                popUpTo("login") { inclusive = true }
-                            }
-                        }
+                onNavigateToRegister = { navController.navigate("register") },
+                onLoginSuccess = {
+                    navController.navigate("home") {
+                        popUpTo("login") { inclusive = true }
                     }
                 }
             )
         }
 
-        // 註冊頁面
         composable("register") {
-            RegisterScreen(
-                onNavigateBackToLogin = {
+            RegisterScreen(onNavigateBackToLogin = { navController.popBackStack() })
+        }
+
+        composable("home") {
+            ElderlyDashboard(
+                isSurveyComplete = userViewModel.isSurveyComplete,
+                onNavigateToSettings = {
+                    navController.navigate("settings")
+                },
+                onNavigateToSurvey = {
+                    navController.navigate("survey")
+                }
+            )
+        }
+
+        composable("survey") {
+            SurveyScreen(
+                currentQuestionIndex = userViewModel.surveyProgress,
+                onProgressUpdate = { userViewModel.updateSurveyProgress(it) },
+                onComplete = {
+                    userViewModel.completeSurvey()
+                    navController.popBackStack()
+                },
+                onNavigateBack = {
                     navController.popBackStack()
                 }
             )
         }
 
-        // 首頁
-        composable("home/{accountId}") {backStackEntry ->
-            val accountIdString = backStackEntry.arguments?.getString("accountId")
-            val accountId = accountIdString?.toIntOrNull() ?: -1
-            ElderlyDashboard(accountId = accountId)
+        composable("settings") {
+            SettingsScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
         }
     }
 }
