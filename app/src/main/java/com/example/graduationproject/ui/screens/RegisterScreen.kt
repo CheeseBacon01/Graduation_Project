@@ -1,7 +1,9 @@
 package com.example.graduationproject.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,6 +32,13 @@ fun RegisterScreen(
     var account by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
+
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    val coroutineScope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -38,7 +47,8 @@ fun RegisterScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -48,9 +58,9 @@ fun RegisterScreen(
                 fontWeight = FontWeight.Bold,
                 color = TextMain
             )
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             Text(
                 text = "加入我們，開始智慧健康生活",
                 fontSize = 16.sp,
@@ -67,6 +77,20 @@ fun RegisterScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = phone,
+                onValueChange = { phone = it; errorMessage = null },
+                label = { Text("聯絡電話") },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isLoading,
+                shape = RoundedCornerShape(16.dp),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone
+                )
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -111,8 +135,39 @@ fun RegisterScreen(
 
             // 註冊按鈕
             ScaleButton(
-                onClick = onRegisterSuccess,
-                text = "註冊",
+                onClick = {
+                    if (name.isEmpty() || account.isEmpty() || password.isEmpty() || phone.isEmpty()) {
+                        errorMessage = "請填寫所有欄位"
+                    } else if (password != confirmPassword) {
+                        errorMessage = "兩次密碼輸入不一致"
+                    } else {
+                        isLoading = true
+                        coroutineScope.launch {
+                            try {
+                                val request = com.example.graduationproject.DataClass.RegisterElderRequest(
+                                    name = name,
+                                    username = account,
+                                    password = password,
+                                    phone = phone
+                                )
+                                val response = com.example.graduationproject.api.ApiClient.apiService.registerElder(request)
+
+                                if (response.isSuccessful && response.body()?.success == true) {
+                                    android.widget.Toast.makeText(context, "註冊成功！", android.widget.Toast.LENGTH_SHORT).show()
+                                    onRegisterSuccess()
+                                } else {
+                                    errorMessage = response.body()?.message ?: "註冊失敗"
+                                }
+                            } catch (e: Exception) {
+                                errorMessage = "網路異常：${e.message}"
+                            } finally {
+                                isLoading = false
+                            }
+                        }
+                    }
+                },
+                text = if (isLoading) "註冊中..." else "註冊",
+                enabled = !isLoading,
                 contentDescription = "註冊帳號按鈕"
             )
 

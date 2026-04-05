@@ -24,6 +24,8 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.graduationproject.DataClass.GetPointsRequest
+import com.example.graduationproject.api.ApiClient
 import com.example.graduationproject.ui.components.ScaleButton
 import com.example.graduationproject.ui.theme.GraduationProjectTheme
 import com.example.graduationproject.ui.theme.LocalFontScale
@@ -43,12 +45,27 @@ private val TextSub = Color(0xFF5D5D5D)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ElderlyDashboard(
+    accountId: Int,
     isSurveyComplete: Boolean = false,
     onNavigateToSettings: () -> Unit = {},
     onNavigateToSurvey: () -> Unit = {},
     onStartTraining: () -> Unit = {}
 ) {
+    var currentPoints by remember { mutableIntStateOf(0) }
     var selectedItem by remember { mutableIntStateOf(0) }
+    LaunchedEffect(accountId) {
+        if (accountId <= 0) return@LaunchedEffect
+        try {
+            val request = GetPointsRequest(accountId = accountId)
+            val response = ApiClient.apiService.getPoints(request)
+            if (response.isSuccessful && response.body()?.success == true) {
+                currentPoints = response.body()?.points ?: 0
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     val items = listOf("首頁", "任務集", "社群", "獎勵")
     val icons = listOf(
         Icons.Default.Home,
@@ -107,9 +124,9 @@ fun ElderlyDashboard(
                         modifier = Modifier.padding(bottom = 12.dp)
                     ) {
                         Text(
-                            text = if (isSurveyComplete) 
-                                "💡 預計 15 分鐘，請準備一張穩固的椅子" 
-                            else 
+                            text = if (isSurveyComplete)
+                                "💡 預計 15 分鐘，請準備一張穩固的椅子"
+                            else
                                 "💡 請先完成評估，以便為您安排專屬任務",
                             fontSize = 16.scaledSp(),
                             fontWeight = FontWeight.Bold,
@@ -117,7 +134,7 @@ fun ElderlyDashboard(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
                     }
-                    
+
                     // 4. 更新關鍵按鈕：使用優化後的 ScaleButton
                     ScaleButton(
                         onClick = {
@@ -140,20 +157,30 @@ fun ElderlyDashboard(
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             when (selectedItem) {
-                0 -> DashboardContent()
+                0 -> DashboardContent(
+                    currentPoints = currentPoints,
+                    isSurveyComplete = isSurveyComplete,
+                    onNavigateToSurvey = onNavigateToSurvey
+                )
                 1 -> AssignmentScreen(
                     isSurveyComplete = isSurveyComplete,
                     onNavigateToSurvey = onNavigateToSurvey
                 )
                 2 -> CommunityScreen()
-                3 -> RewardScreen()
+                3 -> RewardScreen(
+                    accountId = accountId,
+                    currentPoints = currentPoints,
+                    onPointsUpdated = { newPoints ->
+                        currentPoints = newPoints
+                    }
+                )
             }
         }
     }
 }
 
 @Composable
-fun DashboardContent() {
+fun DashboardContent(currentPoints: Int,isSurveyComplete: Boolean, onNavigateToSurvey: () -> Unit){
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -214,6 +241,7 @@ fun DashboardContent() {
         }
 
         item {
+            StatsFilledCardsRow(currentPoints = currentPoints)
             Spacer(modifier = Modifier.height(24.dp))
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
@@ -254,7 +282,7 @@ fun DashboardContent() {
         item { Spacer(modifier = Modifier.height(24.dp)) }
 
         item {
-            StatsFilledCardsRow()
+            StatsFilledCardsRow(currentPoints = currentPoints)
         }
     }
 }
@@ -262,15 +290,15 @@ fun DashboardContent() {
 @Composable
 fun HealthRadarChart(modifier: Modifier = Modifier) {
     val labels = listOf("力量", "平衡", "靈活", "耐力", "速度")
-    val data = listOf(0.8f, 0.7f, 0.9f, 0.6f, 0.75f) 
+    val data = listOf(0.8f, 0.7f, 0.9f, 0.6f, 0.75f)
     val textMeasurer = rememberTextMeasurer()
     val fontScale = LocalFontScale.current
-    
+
     Canvas(modifier = modifier) {
         val centerX = size.width / 2
         val centerY = size.height / 2
-        val maxRadius = size.minDimension / 2 * 0.7f 
-        
+        val maxRadius = size.minDimension / 2 * 0.7f
+
         for (i in 1..3) {
             val radius = maxRadius * (i / 3f)
             val path = Path()
@@ -283,38 +311,38 @@ fun HealthRadarChart(modifier: Modifier = Modifier) {
             path.close()
             drawPath(path, color = Color.LightGray.copy(alpha = 0.5f), style = Stroke(width = 2f))
         }
-        
+
         labels.forEachIndexed { j, label ->
             val angle = Math.toRadians(j * 72.0 - 90.0).toFloat()
             val x = centerX + maxRadius * cos(angle)
             val y = centerY + maxRadius * sin(angle)
-            
+
             drawLine(
                 color = Color.LightGray.copy(alpha = 0.5f),
                 start = Offset(centerX, centerY),
                 end = Offset(x, y),
                 strokeWidth = 2f
             )
-            
+
             val labelRadius = maxRadius + 24.dp.toPx()
             val labelX = centerX + labelRadius * cos(angle)
             val labelY = centerY + labelRadius * sin(angle)
-            
+
             val textLayoutResult = textMeasurer.measure(
                 text = label,
                 style = TextStyle(
-                    fontSize = (12 * fontScale).sp, 
-                    fontWeight = FontWeight.Bold, 
+                    fontSize = (12 * fontScale).sp,
+                    fontWeight = FontWeight.Bold,
                     color = TextMain
                 )
             )
-            
+
             drawText(
                 textLayoutResult = textLayoutResult,
                 topLeft = Offset(labelX - textLayoutResult.size.width / 2, labelY - textLayoutResult.size.height / 2)
             )
         }
-        
+
         val dataPath = Path()
         for (j in 0 until 5) {
             val radius = maxRadius * data[j]
@@ -324,10 +352,10 @@ fun HealthRadarChart(modifier: Modifier = Modifier) {
             if (j == 0) dataPath.moveTo(x, y) else dataPath.lineTo(x, y)
         }
         dataPath.close()
-        
+
         drawPath(dataPath, color = SecondaryTeal.copy(alpha = 0.3f))
         drawPath(dataPath, color = SecondaryTeal, style = Stroke(width = 6f))
-        
+
         for (j in 0 until 5) {
             val radius = maxRadius * data[j]
             val angle = Math.toRadians(j * 72.0 - 90.0).toFloat()
@@ -360,7 +388,7 @@ fun DigitalTwinElevatedCard() {
 }
 
 @Composable
-fun StatsFilledCardsRow() {
+fun StatsFilledCardsRow(currentPoints: Int) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -377,7 +405,7 @@ fun StatsFilledCardsRow() {
         FilledCard(
             modifier = Modifier.weight(1f),
             label = "累積點數",
-            value = "850",
+            value = currentPoints.toString(),
             unit = "P",
             containerColor = StatsPastelOrange,
             icon = Icons.Default.MonetizationOn,
@@ -415,9 +443,9 @@ fun FilledCard(
             )
             Column {
                 Text(
-                    text = label, 
-                    fontSize = 16.scaledSp(), 
-                    color = TextSub, 
+                    text = label,
+                    fontSize = 16.scaledSp(),
+                    color = TextSub,
                     fontWeight = FontWeight.Medium
                 )
                 Row(verticalAlignment = Alignment.Bottom) {

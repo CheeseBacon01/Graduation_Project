@@ -1,9 +1,6 @@
 package com.example.graduationproject.DataClass
 import com.google.gson.annotations.SerializedName
 
-class LoginClass {
-
-}
 data class LoginRequest(
     val username: String,
     val password: String
@@ -12,13 +9,10 @@ data class LoginRequest(
 data class LoginResponse(
     val success: Boolean,
     val message: String,
-    val data: UserData?
+    val account_id: Int,
+    val role: String?
 )
 
-data class UserData(
-    val account_id: Int,
-    val role: String
-)
 data class RegisterElderRequest(
     val name: String,
     val username: String,

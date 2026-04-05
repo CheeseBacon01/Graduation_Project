@@ -52,7 +52,7 @@ fun SettingsScreen(
                 fontWeight = FontWeight.Bold,
                 color = TextMain
             )
-            
+
             Text(
                 text = "目前暫無可調整的設定。",
                 fontSize = 18.scaledSp(),

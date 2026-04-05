@@ -298,7 +298,7 @@ fun TaskTodayCard() {
                 }
             }
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             // 使用具備縮放與震動反饋的 ScaleButton
             ScaleButton(
                 onClick = { /* 開始任務 */ },

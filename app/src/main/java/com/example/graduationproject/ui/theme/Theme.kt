@@ -58,7 +58,7 @@ fun GraduationProjectTheme(
     }
 
     val currentDensity = LocalDensity.current
-    
+
     // 實作限制總體字體縮放上限，防止極端排版崩潰
     // 當系統字體與 App 內縮放相乘後，限制最高倍率為 2.1f
     val totalFontScale = (currentDensity.fontScale * fontScale).coerceIn(1.0f, 2.1f)

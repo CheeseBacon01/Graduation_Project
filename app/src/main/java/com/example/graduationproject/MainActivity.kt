@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable // 🌟 確保有 import 這個
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -22,9 +23,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            // 雖然移除設定頁面的調整功能，但仍保留狀態以支援 Theme 的字體保護邏輯
             val fontScale by remember { mutableFloatStateOf(1.0f) }
-            
+
             GraduationProjectTheme(fontScale = fontScale) {
                 CompositionLocalProvider(LocalFontScale provides fontScale) {
                     AppNavigation()
@@ -38,6 +38,8 @@ class MainActivity : ComponentActivity() {
 fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
     val navController = rememberNavController()
 
+    var globalAccountId by rememberSaveable { mutableIntStateOf(-1) }
+
     NavHost(
         navController = navController,
         startDestination = "login"
@@ -45,7 +47,9 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
         composable("login") {
             LoginScreen(
                 onNavigateToRegister = { navController.navigate("register") },
-                onLoginSuccess = {
+                onLoginSuccess = { role, accountId ->
+                    globalAccountId = accountId
+
                     navController.navigate("home") {
                         popUpTo("login") { inclusive = true }
                     }
@@ -59,6 +63,7 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
 
         composable("home") {
             ElderlyDashboard(
+                accountId = globalAccountId,
                 isSurveyComplete = userViewModel.isSurveyComplete,
                 onNavigateToSettings = {
                     navController.navigate("settings")

@@ -70,7 +70,7 @@ fun CommunityScreen() {
         calendar.add(Calendar.DATE, 6)
         val endMonth = calendar.get(Calendar.MONTH) + 1
         val endDay = calendar.get(Calendar.DAY_OF_MONTH)
-        
+
         "$startMonth/$startDay - $endMonth/$endDay"
     }
 
@@ -97,13 +97,13 @@ fun CommunityScreen() {
                     selected = isSelected,
                     onClick = { selectedTabIndex = index },
                     modifier = Modifier.fillMaxHeight(),
-                    text = { 
+                    text = {
                         Text(
-                            text = title, 
+                            text = title,
                             fontSize = 20.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             color = if (isSelected) PrimaryPeach else TextSub
-                        ) 
+                        )
                     }
                 )
             }
@@ -183,9 +183,9 @@ fun MyRankHeader(user: CommunityUser) {
                     color = SecondaryTeal
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             // 超越提示
             Surface(
                 color = Color.White.copy(alpha = 0.5f),
@@ -280,7 +280,7 @@ fun CommunityUserCard(user: CommunityUser) {
             // 愛心按鈕視覺層級調淡
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 IconButton(
-                    onClick = { 
+                    onClick = {
                         isLiked = !isLiked
                         if (isLiked) likesCount++ else likesCount--
                     },
