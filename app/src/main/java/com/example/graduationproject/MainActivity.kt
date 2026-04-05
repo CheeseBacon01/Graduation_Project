@@ -42,17 +42,16 @@ fun AppNavigation() {
                 onLoginSuccess = { role, accountId ->
                     when (role) {
                         "elder" -> {
-                            /*navController.navigate("elder_home") {
+                            navController.navigate("home/$accountId") {
                                 popUpTo("login") { inclusive = true }
                             }
-                            */
                         }
-                        "doctor" -> {
+                        "medical_stuff" -> {
                         }
                         "family" -> {
                         }
                         else -> {
-                            navController.navigate("elder_home") {
+                            navController.navigate("home") {
                                 popUpTo("login") { inclusive = true }
                             }
                         }
@@ -71,8 +70,10 @@ fun AppNavigation() {
         }
 
         // 首頁
-        composable("home") {
-            ElderlyDashboard()
+        composable("home/{accountId}") {backStackEntry ->
+            val accountIdString = backStackEntry.arguments?.getString("accountId")
+            val accountId = accountIdString?.toIntOrNull() ?: -1
+            ElderlyDashboard(accountId = accountId)
         }
     }
 }
