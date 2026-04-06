@@ -16,6 +16,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.graduationproject.ui.components.ScaleButton
 import com.example.graduationproject.ui.theme.GraduationProjectTheme
+import kotlinx.coroutines.launch
+
 
 // 延續 HomeScreen 的色調
 private val BeigeBg = Color(0xFFFDFCF9)

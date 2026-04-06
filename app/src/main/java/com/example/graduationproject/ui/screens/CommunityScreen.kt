@@ -10,6 +10,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.SentimentVerySatisfied
+import androidx.compose.material.icons.filled.MilitaryTech
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -176,12 +178,21 @@ fun MyRankHeader(user: CommunityUser) {
                     Text(text = "本週累積表現", fontSize = 14.sp, color = TextSub)
                     Text(text = user.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextMain)
                 }
-                Text(
-                    text = "${user.weeklyExp} 經驗值",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Black,
-                    color = SecondaryTeal
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    /*Icon(
+                        imageVector = Icons.Default.MilitaryTech,
+                        contentDescription = null,
+                        tint = SecondaryTeal,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))*/
+                    Text(
+                        text = "${user.weeklyExp} 經驗值",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black,
+                        color = SecondaryTeal
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -220,9 +231,48 @@ fun CommunityUserCard(user: CommunityUser) {
             title = { Text(text = "${user.name} 的訓練成就", fontSize = 24.sp, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("🏆 本週運動：${user.weeklyExercise} 次", fontSize = 20.sp, color = TextMain)
-                    Text("⭐ 本週經驗值：${user.weeklyExp} 經驗值", fontSize = 20.sp, color = TextMain)
-                    Text("❤️ 收到愛心：$likesCount 個", fontSize = 20.sp, color = PrimaryPeach)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.EmojiEvents,
+                            contentDescription = null,
+                            tint = Color(0xFFFFD700), // 金色獎盃
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "本週運動：${user.weeklyExercise} 次",
+                            fontSize = 20.sp,
+                            color = TextMain
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.MilitaryTech,
+                            contentDescription = null,
+                            tint = PrimaryPeach,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "本週經驗值：${user.weeklyExp} 經驗值",
+                            fontSize = 20.sp,
+                            color = TextMain
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = null,
+                            tint = PrimaryPeach,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "收到愛心：$likesCount 個",
+                            fontSize = 20.sp,
+                            color = TextMain
+                        )
+                    }
                 }
             },
             shape = RoundedCornerShape(24.dp),
@@ -268,13 +318,22 @@ fun CommunityUserCard(user: CommunityUser) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = user.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextMain)
                 Text(text = user.level, fontSize = 14.sp, color = SecondaryTeal, fontWeight = FontWeight.Medium)
-                // 顯示他人的經驗值
-                Text(
-                    text = "⭐ ${user.weeklyExp} 經驗值",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = PrimaryPeach
-                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.MilitaryTech,
+                        contentDescription = null,
+                        tint = PrimaryPeach,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "${user.weeklyExp} 經驗值",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = PrimaryPeach
+                    )
+                }
             }
 
             // 愛心按鈕視覺層級調淡

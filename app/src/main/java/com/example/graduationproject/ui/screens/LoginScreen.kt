@@ -30,7 +30,7 @@ private val ErrorRed = Color(0xFFB00020)
 @Composable
 fun LoginScreen(
     onNavigateToRegister: () -> Unit = {},
-    onLoginSuccess: () -> Unit = {}
+    onLoginSuccess:(String, Int) -> Unit = { _, _ -> }
 ) {
     var account by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -162,6 +162,7 @@ fun LoginScreen(
                                 } else {
                                     errorMessage = response.body()?.message ?: "帳號或密碼錯誤"
                                 }
+
                             } catch (e: Exception) {
                                 errorMessage = "網路連線失敗，請檢查網路"
                             } finally {

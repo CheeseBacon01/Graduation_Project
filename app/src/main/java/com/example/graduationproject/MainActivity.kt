@@ -5,7 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable // 🌟 確保有 import 這個
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -76,9 +76,7 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
 
         composable("survey") {
             SurveyScreen(
-                currentQuestionIndex = userViewModel.surveyProgress,
-                onProgressUpdate = { userViewModel.updateSurveyProgress(it) },
-                onComplete = {
+                onComplete = { grade, score ->
                     userViewModel.completeSurvey()
                     navController.popBackStack()
                 },

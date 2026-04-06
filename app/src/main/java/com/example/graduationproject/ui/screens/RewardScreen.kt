@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.sp
 import com.example.graduationproject.ui.theme.GraduationProjectTheme
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.items
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 
 private val BeigeBg = Color(0xFFFDFCF9)
 private val PrimaryPeach = Color(0xFFFF8A65)
@@ -363,7 +365,11 @@ fun RewardCard(
             }
 
             Button(
-                onClick = { /* 兌換邏輯 */ },
+                onClick = {
+                    if (!isLoading) { // 防止重複點擊
+                        onRedeemClick()
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),

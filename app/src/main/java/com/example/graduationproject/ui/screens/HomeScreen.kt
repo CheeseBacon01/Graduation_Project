@@ -512,6 +512,6 @@ fun ElderlyNavigationBar(
 @Composable
 fun DashboardPreview() {
     GraduationProjectTheme {
-        ElderlyDashboard()
+        ElderlyDashboard(accountId = 1)
     }
 }
