@@ -58,3 +58,15 @@ data class SendOtpResponse(
     val success: Boolean,
     val message: String
 )
+
+data class SaveAssessmentRequest(
+    val account_id: Int,
+    val sppb_score: Int,
+    val grade: String,
+    val has_fall_risk: Boolean
+)
+
+data class SaveAssessmentResponse(
+    val success: Boolean,
+    val message: String
+)

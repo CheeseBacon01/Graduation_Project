@@ -9,6 +9,8 @@ import com.example.graduationproject.DataClass.LoginResponse
 import com.example.graduationproject.DataClass.RedeemRequest
 import com.example.graduationproject.DataClass.RedeemResponse
 import com.example.graduationproject.DataClass.RegisterElderRequest
+import com.example.graduationproject.DataClass.SaveAssessmentRequest
+import com.example.graduationproject.DataClass.SaveAssessmentResponse
 import com.example.graduationproject.DataClass.SendOtpRequest
 import com.example.graduationproject.DataClass.SendOtpResponse
 import retrofit2.Response
@@ -36,4 +38,8 @@ interface ApiService {
         @Body request: SendOtpRequest
     ): Response<SendOtpResponse>
 
+    @POST("api/save_assessment.php")
+    suspend fun saveAssessment(
+        @Body request: SaveAssessmentRequest
+    ): Response<SaveAssessmentResponse>
 }
