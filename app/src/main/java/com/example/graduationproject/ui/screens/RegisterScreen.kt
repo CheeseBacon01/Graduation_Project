@@ -79,7 +79,7 @@ fun VerificationCodeInput(
                             .border(
                                 width = 2.dp,
                                 color = when {
-                                    isError -> Color.Red // 如果發生錯誤，全部變紅色
+                                    isError -> Color.Red
                                     isNextToInput -> PrimaryPeach
                                     char.isNotEmpty() -> PrimaryPeach.copy(alpha = 0.5f)
                                     else -> Color.LightGray
@@ -304,7 +304,6 @@ fun RegisterScreen(
                         isError = verificationError != null,
                         onCodeChange = { newValue ->
                             if (!isCodeVerified) {
-                                // 🌟 只要開始重新輸入，就隱藏之前的錯誤提示
                                 if (verificationError != null) {
                                     verificationError = null
                                 }
