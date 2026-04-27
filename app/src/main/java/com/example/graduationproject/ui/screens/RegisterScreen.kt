@@ -47,6 +47,7 @@ private val TextMain = Color(0xFF201A18)
 @Composable
 fun VerificationCodeInput(
     code: String,
+    isError: Boolean = false,
     onCodeChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -77,9 +78,12 @@ fun VerificationCodeInput(
                             .background(Color.White, RoundedCornerShape(12.dp))
                             .border(
                                 width = 2.dp,
-                                color = if (isNextToInput) PrimaryPeach
-                                else if (char.isNotEmpty()) PrimaryPeach.copy(alpha = 0.5f)
-                                else Color.LightGray,
+                                color = when {
+                                    isError -> Color.Red // 如果發生錯誤，全部變紅色
+                                    isNextToInput -> PrimaryPeach
+                                    char.isNotEmpty() -> PrimaryPeach.copy(alpha = 0.5f)
+                                    else -> Color.LightGray
+                                },
                                 shape = RoundedCornerShape(12.dp)
                             ),
                         contentAlignment = Alignment.Center
@@ -126,30 +130,34 @@ fun RegisterScreen(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // 🌟 自動驗證邏輯 (Auto-Verify)
     LaunchedEffect(verificationCode) {
         if (verificationCode.length == 6 && !isCodeVerified && !isVerifyingCode) {
             isVerifyingCode = true
             verificationError = null
 
-            // 模擬 API 驗證過程
             coroutineScope.launch {
-                delay(1200L)
-                // 這裡未來替換成您的實體 API 呼叫
-                val isSuccess = true // 模擬結果
+                try {
+                    val request = com.example.graduationproject.DataClass.VerifyOtpRequest(
+                        email = email,
+                        otp_code = verificationCode
+                    )
+                    val response = com.example.graduationproject.api.ApiClient.apiService.verifyEmailOtp(request)
 
-                isVerifyingCode = false
-                if (isSuccess) {
-                    isCodeVerified = true
-                    Toast.makeText(context, "驗證成功", Toast.LENGTH_SHORT).show()
-                } else {
-                    verificationError = "驗證碼錯誤，請重新輸入"
+                    isVerifyingCode = false
+
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        isCodeVerified = true
+                        Toast.makeText(context, "驗證成功", Toast.LENGTH_SHORT).show()
+                    } else {
+                        verificationError = response.body()?.message ?: "驗證碼錯誤"
+                        verificationCode = ""
+                    }
+                } catch (e: Exception) {
+                    isVerifyingCode = false
+                    verificationError = "網路異常，請重試"
                     verificationCode = ""
                 }
             }
-        } else if (verificationCode.length < 6) {
-            // 當使用者刪除字元時，清除錯誤提示
-            verificationError = null
         }
     }
 
@@ -293,12 +301,32 @@ fun RegisterScreen(
                     Spacer(modifier = Modifier.height(24.dp))
                     VerificationCodeInput(
                         code = verificationCode,
-                        onCodeChange = { if (!isCodeVerified) verificationCode = it }
+                        isError = verificationError != null,
+                        onCodeChange = { newValue ->
+                            if (!isCodeVerified) {
+                                // 🌟 只要開始重新輸入，就隱藏之前的錯誤提示
+                                if (verificationError != null) {
+                                    verificationError = null
+                                }
+                                verificationCode = newValue
+                            }
+                        }
                     )
+
+                    if (verificationCode.isNotEmpty() && !isCodeVerified && !isVerifyingCode) {
+                        TextButton(
+                            onClick = {
+                                verificationCode = ""
+                                verificationError = null
+                            },
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("清空重填", color = PrimaryPeach, fontSize = 14.sp)
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // 🌟 狀態提示列 (Status Row)
                     Row(
                         modifier = Modifier.height(32.dp),
                         verticalAlignment = Alignment.CenterVertically,
