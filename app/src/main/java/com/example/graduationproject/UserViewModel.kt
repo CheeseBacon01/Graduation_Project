@@ -9,6 +9,9 @@ class UserViewModel : ViewModel() {
     var isSurveyComplete by mutableStateOf(false)
         private set
 
+    var userLevel by mutableStateOf("A") // 預設 A
+        private set
+
     var surveyProgress by mutableStateOf(0) // 追蹤回答到第幾題
         private set
 
@@ -16,7 +19,14 @@ class UserViewModel : ViewModel() {
         surveyProgress = index
     }
 
-    fun completeSurvey() {
+    fun completeSurvey(grade: String) {
+        userLevel = grade
         isSurveyComplete = true
+    }
+
+    fun reset() {
+        isSurveyComplete = false
+        userLevel = "A"
+        surveyProgress = 0
     }
 }

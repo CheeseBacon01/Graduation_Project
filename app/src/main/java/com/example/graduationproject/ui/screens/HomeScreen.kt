@@ -47,6 +47,7 @@ private val TextSub = Color(0xFF5D5D5D)
 fun ElderlyDashboard(
     accountId: Int,
     isSurveyComplete: Boolean = false,
+    userLevel: String = "A",
     onNavigateToSettings: () -> Unit = {},
     onNavigateToSurvey: () -> Unit = {},
     onStartTraining: () -> Unit = {}
@@ -163,6 +164,7 @@ fun ElderlyDashboard(
                     onNavigateToSurvey = onNavigateToSurvey
                 )
                 1 -> AssignmentScreen(
+                    userLevel = userLevel,
                     isSurveyComplete = isSurveyComplete,
                     onNavigateToSurvey = onNavigateToSurvey
                 )

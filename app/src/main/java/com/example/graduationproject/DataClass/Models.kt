@@ -70,3 +70,27 @@ data class SaveAssessmentResponse(
     val success: Boolean,
     val message: String
 )
+
+// --- VIVIFRAIL Data Models ---
+
+enum class ExerciseStatus {
+    COMPLETED,
+    CURRENT,
+    LOCKED
+}
+
+data class Exercise(
+    val id: String,
+    val name: String,
+    val intensity: String, // 輕鬆/中等/挑戰
+    val sets: String,      // 組數
+    val repsOrTime: String, // 每組次數/時間
+    val restTime: String,   // 組間休息
+    val status: ExerciseStatus = ExerciseStatus.LOCKED
+)
+
+data class DailyPlan(
+    val dayNumber: Int,
+    val level: String, // A/B/C/D
+    val exercises: List<Exercise>
+)

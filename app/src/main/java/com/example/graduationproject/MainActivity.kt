@@ -67,6 +67,7 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
             ElderlyDashboard(
                 accountId = globalAccountId,
                 isSurveyComplete = userViewModel.isSurveyComplete,
+                userLevel = userViewModel.userLevel,
                 onNavigateToSettings = {
                     navController.navigate("settings")
                 },
@@ -84,7 +85,7 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                 onComplete = { grade, score, hasFallRisk ->
 
                     coroutineScope.launch {
-                        try {
+                        /*try {
                             val request = com.example.graduationproject.DataClass.SaveAssessmentRequest(
                                 account_id = globalAccountId,
                                 sppb_score = score,
@@ -96,7 +97,7 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
 
                             if (response.isSuccessful && response.body()?.success == true) {
                                 android.widget.Toast.makeText(context, "評估結果已成功紀錄", android.widget.Toast.LENGTH_SHORT).show()
-                                userViewModel.completeSurvey()
+                                userViewModel.completeSurvey(grade)
                                 navController.popBackStack()
                             }
                             else {
@@ -105,7 +106,9 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                         }
                         catch (e: Exception) {
                             android.widget.Toast.makeText(context, "網路連線異常：${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                        }
+                        }*/
+                        userViewModel.completeSurvey(grade)
+                        navController.popBackStack()
                     }
                 },
                 onNavigateBack = {
@@ -118,6 +121,13 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
             SettingsScreen(
                 onNavigateBack = {
                     navController.popBackStack()
+                },
+                onLogout = {
+                    globalAccountId = -1
+                    userViewModel.reset()
+                    navController.navigate("login") {
+                        popUpTo(0) { inclusive = true }
+                    }
                 }
             )
         }
