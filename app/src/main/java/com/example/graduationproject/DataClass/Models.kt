@@ -71,6 +71,16 @@ data class SaveAssessmentResponse(
     val message: String
 )
 
+data class VerifyOtpRequest(
+    val email: String,
+    val otp_code: String
+)
+
+data class VerifyOtpResponse(
+    val success: Boolean,
+    val message: String
+)
+
 // --- VIVIFRAIL Data Models ---
 
 enum class ExerciseStatus {

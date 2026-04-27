@@ -13,6 +13,8 @@ import com.example.graduationproject.DataClass.SaveAssessmentRequest
 import com.example.graduationproject.DataClass.SaveAssessmentResponse
 import com.example.graduationproject.DataClass.SendOtpRequest
 import com.example.graduationproject.DataClass.SendOtpResponse
+import com.example.graduationproject.DataClass.VerifyOtpRequest
+import com.example.graduationproject.DataClass.VerifyOtpResponse
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.POST
@@ -42,4 +44,9 @@ interface ApiService {
     suspend fun saveAssessment(
         @Body request: SaveAssessmentRequest
     ): Response<SaveAssessmentResponse>
+
+    @POST("api/verify_email_otp.php")
+    suspend fun verifyEmailOtp(
+        @Body request: VerifyOtpRequest
+    ): retrofit2.Response<VerifyOtpResponse>
 }
