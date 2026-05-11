@@ -1,3 +1,4 @@
+//TODO: Remove Toast
 package com.example.graduationproject
 
 import android.os.Bundle
@@ -18,7 +19,8 @@ import com.example.graduationproject.ui.screens.SurveyScreen
 import com.example.graduationproject.ui.theme.GraduationProjectTheme
 import com.example.graduationproject.ui.theme.LocalFontScale
 import kotlinx.coroutines.launch
-
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,18 +41,28 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
     val navController = rememberNavController()
+    val context = LocalContext.current
 
-    var globalAccountId by rememberSaveable { mutableIntStateOf(-1) }
+    val sharedPreferences = remember {
+        context.getSharedPreferences("ElderCarePrefs", Context.MODE_PRIVATE)
+    }
 
+    val savedAccountId = sharedPreferences.getInt("ACCOUNT_ID", -1)
+
+    var globalAccountId by remember { mutableIntStateOf(savedAccountId) }
+
+    val initialRoute = if (savedAccountId != -1) "home" else "login"
     NavHost(
         navController = navController,
-        startDestination = "login"
+        startDestination = initialRoute
     ) {
         composable("login") {
             LoginScreen(
                 onNavigateToRegister = { navController.navigate("register") },
                 onLoginSuccess = { role, accountId ->
                     globalAccountId = accountId
+
+                    sharedPreferences.edit().putInt("ACCOUNT_ID", accountId).apply()
 
                     navController.navigate("home") {
                         popUpTo("login") { inclusive = true }
@@ -85,7 +97,7 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                 onComplete = { grade, score, hasFallRisk ->
 
                     coroutineScope.launch {
-                        /*try {
+                        try {
                             val request = com.example.graduationproject.DataClass.SaveAssessmentRequest(
                                 account_id = globalAccountId,
                                 sppb_score = score,
@@ -106,9 +118,7 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                         }
                         catch (e: Exception) {
                             android.widget.Toast.makeText(context, "網路連線異常：${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                        }*/
-                        userViewModel.completeSurvey(grade)
-                        navController.popBackStack()
+                        }
                     }
                 },
                 onNavigateBack = {
@@ -123,10 +133,10 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                     navController.popBackStack()
                 },
                 onLogout = {
+                    sharedPreferences.edit().remove("ACCOUNT_ID").apply()
                     globalAccountId = -1
-                    userViewModel.reset()
                     navController.navigate("login") {
-                        popUpTo(0) { inclusive = true }
+                        popUpTo("home") { inclusive = true }
                     }
                 }
             )

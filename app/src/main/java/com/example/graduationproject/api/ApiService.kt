@@ -1,5 +1,7 @@
 package com.example.graduationproject.api
 
+import com.example.graduationproject.DataClass.BindFamilyRequest
+import com.example.graduationproject.DataClass.CommonResponse
 import com.example.graduationproject.DataClass.GetPointHistoryRequest
 import com.example.graduationproject.DataClass.GetPointHistoryResponse
 import com.example.graduationproject.DataClass.GetPointsRequest
@@ -49,4 +51,9 @@ interface ApiService {
     suspend fun verifyEmailOtp(
         @Body request: VerifyOtpRequest
     ): retrofit2.Response<VerifyOtpResponse>
+
+    @POST("bind_family.php")
+    suspend fun bindFamily(
+        @Body request: BindFamilyRequest
+    ): Response<CommonResponse>
 }

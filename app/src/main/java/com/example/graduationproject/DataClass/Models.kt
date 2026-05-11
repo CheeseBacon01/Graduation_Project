@@ -10,10 +10,13 @@ data class LoginRequest(
 data class LoginResponse(
     val success: Boolean,
     val message: String,
-    val account_id: Int,
-    val role: String?
+    val data: UserData?
 )
-
+data class UserData(
+    val account_id: Int,
+    val role: String?,
+    val name: String?
+)
 data class RegisterElderRequest(
     val name: String,
     val username: String,
@@ -77,6 +80,17 @@ data class VerifyOtpRequest(
 )
 
 data class VerifyOtpResponse(
+    val success: Boolean,
+    val message: String
+)
+
+data class BindFamilyRequest(
+    val account_id: Int,
+    val elder_id: Int,
+    val name: String
+)
+
+data class CommonResponse(
     val success: Boolean,
     val message: String
 )
