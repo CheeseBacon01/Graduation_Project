@@ -1,3 +1,4 @@
+//TODO: Remove Toast
 package com.example.graduationproject.ui.screens
 
 import android.widget.Toast
@@ -137,6 +138,14 @@ fun RegisterScreen(
 
             coroutineScope.launch {
                 try {
+                    //測試暫時關閉驗證功能
+                    if (verificationCode == "000000") {
+                        isVerifyingCode = false
+                        isCodeVerified = true
+                        android.widget.Toast.makeText(context, "驗證成功", android.widget.Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+
                     val request = com.example.graduationproject.DataClass.VerifyOtpRequest(
                         email = email,
                         otp_code = verificationCode
@@ -216,17 +225,10 @@ fun RegisterScreen(
                 onValueChange = { newValue ->
                     account = newValue
                     errorMessage = null
-                    // 簡單驗證：帳號至少需 4 個字元
-                    isAccountError = newValue.isNotEmpty() && newValue.length < 4
                 },
-                label = { Text("帳號(至少4個字元)") },
+                label = { Text("帳號") },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
                 isError = isAccountError,
-                supportingText = {
-                    if (isAccountError) {
-                        Text(text = "帳號長度不足")
-                    }
-                },
                 shape = RoundedCornerShape(16.dp),
                 singleLine = true
             )
@@ -241,7 +243,7 @@ fun RegisterScreen(
                     errorMessage = null
                     isEmailError = newValue.isNotEmpty() && !newValue.isValidEmail()
                 },
-                label = { Text("電子信箱 (Email)") },
+                label = { Text("電子信箱") },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
                 isError = isEmailError,
                 supportingText = {
@@ -311,6 +313,7 @@ fun RegisterScreen(
                             }
                         }
                     )
+
 
                     if (verificationCode.isNotEmpty() && !isCodeVerified && !isVerifyingCode) {
                         TextButton(
@@ -395,14 +398,30 @@ fun RegisterScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             // 5. 確認密碼 (統一高度 min = 64.dp)
+            val isPasswordMismatch = password.isNotEmpty() && confirmPassword.isNotEmpty() && password != confirmPassword
+
             OutlinedTextField(
                 value = confirmPassword,
-                onValueChange = { confirmPassword = it },
+                onValueChange = {
+                    confirmPassword = it
+                    if (errorMessage == "密碼輸入不一致") {
+                        errorMessage = null
+                    }
+                },
                 label = { Text("確認密碼") },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
                 shape = RoundedCornerShape(16.dp),
                 visualTransformation = PasswordVisualTransformation(),
-                singleLine = true
+                singleLine = true,
+                isError = isPasswordMismatch,
+                supportingText = {
+                    if (isPasswordMismatch) {
+                        Text(
+                            text = "密碼輸入不一致",
+                            color = Color.Red
+                        )
+                    }
+                }
             )
 
             // 錯誤訊息

@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.sp
 import com.example.graduationproject.ui.theme.GraduationProjectTheme
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.items
-import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 
 private val BeigeBg = Color(0xFFFDFCF9)
@@ -65,6 +64,8 @@ fun RewardScreen(accountId: Int, currentPoints: Int, onPointsUpdated: (Int) -> U
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
+    val snackbarHostState = remember { SnackbarHostState() }
+
     val rewards = listOf(
         RewardItem(1, "運動排汗衫", 500, Icons.Default.Checkroom, Color(0xFF64B5F6)),
         RewardItem(2, "綜合維他命", 1200, Icons.Default.LocalPharmacy, Color(0xFF81C784)),
@@ -72,17 +73,21 @@ fun RewardScreen(accountId: Int, currentPoints: Int, onPointsUpdated: (Int) -> U
         RewardItem(4, "健康按摩球", 800, Icons.Default.CardGiftcard, Color(0xFFBA68C8))
     )
 
-    Surface(
+    Scaffold(
         modifier = Modifier.fillMaxSize(),
-        color = BeigeBg
-    ) {
+        containerColor = BeigeBg,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+    ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(paddingValues)
                 .padding(horizontal = 24.dp)
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 24.dp),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -106,7 +111,6 @@ fun RewardScreen(accountId: Int, currentPoints: Int, onPointsUpdated: (Int) -> U
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
-            // 雙欄位網格列表
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -130,17 +134,22 @@ fun RewardScreen(accountId: Int, currentPoints: Int, onPointsUpdated: (Int) -> U
                                     val response = com.example.graduationproject.api.ApiClient.apiService.redeemReward(request)
 
                                     if (response.isSuccessful && response.body()?.success == true) {
-                                        // 🌟 2. 兌換成功時，計算剩餘點數，並通知父元件更新！
                                         val newPoints = response.body()?.remaining_points ?: (currentPoints - item.points)
                                         onPointsUpdated(newPoints)
 
-                                        Toast.makeText(context, "兌換成功！", Toast.LENGTH_SHORT).show()
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("兌換成功！")
+                                        }
                                     } else {
                                         val errorMsg = response.body()?.message ?: "兌換失敗"
-                                        Toast.makeText(context, errorMsg, Toast.LENGTH_SHORT).show()
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar(errorMsg)
+                                        }
                                     }
                                 } catch (e: Exception) {
-                                    Toast.makeText(context, "網路連線失敗", Toast.LENGTH_SHORT).show()
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("網路連線失敗")
+                                    }
                                 } finally {
                                     redeemingId = null
                                 }
