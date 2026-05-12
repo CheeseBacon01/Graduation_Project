@@ -366,7 +366,7 @@ fun EmptyStateView(onNavigateToSurvey: () -> Unit) {
         )
         Spacer(modifier = Modifier.height(12.dp))
         Text(
-            "請先完成體能評估，我們將根據您的狀況提供專屬的 Vivifrail 運動方案。",
+            "請先完成簡易體能狀況量表，我們將根據您的狀況安排專屬任務。",
             fontSize = 18.scaledSp(),
             color = TextSub,
             textAlign = TextAlign.Center

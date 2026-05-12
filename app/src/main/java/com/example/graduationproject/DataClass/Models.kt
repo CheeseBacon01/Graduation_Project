@@ -1,6 +1,27 @@
 package com.example.graduationproject.DataClass
+import androidx.compose.ui.graphics.Color
 import com.example.graduationproject.ui.screens.PointRecord
 import com.google.gson.annotations.SerializedName
+
+data class CommunityUser(
+    val id: String,
+    val name: String,
+    val level: String,
+    val avatarColor: Color,
+    val weeklyExercise: Int,
+    val weeklyExp: Int,
+    val rank: Int,
+    val isFriend: Boolean = false,
+    val hasPendingRequestSent: Boolean = false
+)
+
+data class FriendRequest(
+    val id: String,
+    val senderName: String,
+    val senderLevel: String,
+    val senderAvatarColor: Color,
+    val requestTime: String
+)
 
 data class LoginRequest(
     val username: String,
