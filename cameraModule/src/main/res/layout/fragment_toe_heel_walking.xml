@@ -135,5 +135,18 @@
         app:backgroundTint="@color/mp_color_primary"
         app:srcCompat="@drawable/ic_baseline_photo_camera_24"
         app:tint="@android:color/white" />
+    <TextView
+        android:id="@+id/tvCenterStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:textColor="#CCFFFFFF"
+        android:textSize="80sp"
+        android:textStyle="bold"
+        android:shadowColor="#000000"
+        android:shadowDx="5"
+        android:shadowDy="5"
+        android:shadowRadius="5" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

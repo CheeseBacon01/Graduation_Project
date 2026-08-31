@@ -38,6 +38,7 @@ import java.util.concurrent.Executors
 import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.sqrt
+import com.google.mediapipe.examples.poselandmarker.ExerciseResult
 
 class WringTowelFragment : Fragment() {
 
@@ -333,6 +334,16 @@ class WringTowelFragment : Fragment() {
     private fun completeTest() {
         isTestCompleted = true
         val finalAccuracy = calculateAvgAccuracy()
+        // --- 封包傳送 ---
+        val result = ExerciseResult(
+            exerciseName = "扭毛巾",
+            exerciseId = "C-2,D-2",
+            reps = currentRep,
+            sets = currentSet,
+            accuracy = finalAccuracy
+        )
+        viewModel.postResult(result)
+
         binding.overlay.updateTestInfo(currentRep, currentSet, "測試完成！", finalAccuracy, true, "次數", TOTAL_SETS)
         binding.resultPanel.visibility = View.VISIBLE
         binding.tvFinalResult.text = String.format(Locale.US, "總平均準確率: %.1f%%", finalAccuracy)

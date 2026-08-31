@@ -30,7 +30,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.atan2
-
+import com.google.mediapipe.examples.poselandmarker.ExerciseResult
 class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     companion object {
@@ -338,7 +338,13 @@ class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     private fun completeTest() {
         isTestCompleted = true
         val finalAccuracy = calculateAvgAccuracy()
-
+        // --- 封包傳送 ---
+        val result = ExerciseResult(
+            exerciseName = "腿部伸展",
+            exerciseId = "C-7,D-9",
+            accuracy = finalAccuracy,
+        )
+        viewModel.postResult(result)
         // 已修正：將 TOTAL_REPS_PER_SET 替換為 TOTAL_SETS
         binding.overlay.updateTestInfo(currentRep, currentSet, "測試完成！", finalAccuracy, true, "次數", TOTAL_SETS)
 

@@ -115,12 +115,21 @@
         <action
             android:id="@+id/action_home_to_stair_climbing"
             app:destination="@id/stair_climbing_fragment" />
+        <action
+            android:id="@+id/action_home_to_balloon_walking"
+            app:destination="@id/balloon_walking_fragment" />
     </fragment>
 
     <fragment
         android:id="@+id/stair_climbing_fragment"
         android:name="com.google.mediapipe.examples.poselandmarker.fragment.StairClimbingFragment"
         android:label="StairClimbingFragment">
+    </fragment>
+
+    <fragment
+        android:id="@+id/balloon_walking_fragment"
+        android:name="com.google.mediapipe.examples.poselandmarker.fragment.BalloonWalkingFragment"
+        android:label="BalloonWalkingFragment">
     </fragment>
 
     <fragment

@@ -20,13 +20,22 @@ import androidx.lifecycle.ViewModel
 /**
  *  This ViewModel is used to store pose landmarker helper settings
  */
+data class ExerciseResult(
+    val exerciseName: String,     // 運動名稱 (例如: "水瓶舉重")
+    val exerciseId: String = "",  // 運動 ID (例如: "B1")
+    val reps: Int = 0,            // 總次數
+    val sets: Int = 0,            // 總組數
+    val steps: Int = 0,           // 總步數 (步行類運動用)
+    val accuracy: Float = 0f,     // 平均準確率
+    val durationSeconds: Int = 0, // 總運動時長 (秒)
+    val timestamp: Long = System.currentTimeMillis()
+)
 enum class ExerciseMode {
     LEG_LIFT,      // 抬腿 (使用 Pose)
     SQUEEZE_BALL,  // 捏球 (使用 Hand + Object)
     IDLE
 }
 class MainViewModel : ViewModel() {
-
     private var _model = PoseLandmarkerHelper.MODEL_POSE_LANDMARKER_FULL
     private var _delegate: Int = PoseLandmarkerHelper.DELEGATE_CPU
     private var _minPoseDetectionConfidence: Float =
@@ -47,6 +56,15 @@ class MainViewModel : ViewModel() {
     val currentMinPosePresenceConfidence: Float
         get() =
             _minPosePresenceConfidence
+
+    private val _lastResult = androidx.lifecycle.MutableLiveData<ExerciseResult>()
+    val lastResult: androidx.lifecycle.LiveData<ExerciseResult> get() = _lastResult
+
+    fun postResult(result: ExerciseResult) {
+        _lastResult.postValue(result)
+        // 這裡未來可以加入直接呼叫 API 存檔的邏輯
+        android.util.Log.d("ExerciseData", "封包已發送: $result")
+    }
 
     fun setDelegate(delegate: Int) {
         _delegate = delegate

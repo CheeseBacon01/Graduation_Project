@@ -37,6 +37,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.sqrt
 import kotlin.math.pow
+import com.google.mediapipe.examples.poselandmarker.ExerciseResult
 
 class SqueezeBallFragment : Fragment() {
 
@@ -363,6 +364,13 @@ class SqueezeBallFragment : Fragment() {
     private fun completeTest() {
         isTestCompleted = true
         val finalAccuracy = calculateAvgAccuracy()
+        // --- 封包傳送 ---
+        val result = ExerciseResult(
+            exerciseName = "擠壓球",
+            exerciseId = "A-2,B-3",
+            accuracy = finalAccuracy,
+        )
+        viewModel.postResult(result)
         binding.overlay.updateTestInfo(currentRep, currentSet, "全部測試完成！", finalAccuracy, true, "次數", SETS_PER_HAND)
         binding.resultPanel.visibility = View.VISIBLE
         binding.tvFinalResult.text = String.format(Locale.US, "總平均準確率: %.1f%%", finalAccuracy)

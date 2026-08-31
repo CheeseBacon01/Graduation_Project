@@ -44,7 +44,7 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
-
+import com.google.mediapipe.examples.poselandmarker.ExerciseResult
 class StairClimbingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     enum class State {
@@ -284,6 +284,13 @@ class StairClimbingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListene
         currentState = State.COMPLETED
         binding.tvLargeStatus.visibility = View.GONE
         val finalAccuracy = if (setAccuracies.isNotEmpty()) setAccuracies.average().toFloat() else 0f
+        // --- 封包傳送 ---
+        val result = ExerciseResult(
+            exerciseName = "上下樓梯",
+            exerciseId = "D-5",
+            accuracy = finalAccuracy,
+        )
+        viewModel.postResult(result)
         binding.resultPanel.visibility = View.VISIBLE
         binding.tvFinalResult.text = String.format(Locale.US, "總平均準確率: %.1f%%\n總步數: %d 步", finalAccuracy, totalStepCount)
         binding.overlay.updateTestInfo(currentStepCount, currentSet, "訓練完成！", finalAccuracy, true, "目前步數", MAX_SETS)
