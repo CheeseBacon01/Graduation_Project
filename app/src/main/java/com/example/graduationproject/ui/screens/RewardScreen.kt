@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
@@ -28,7 +29,6 @@ import androidx.compose.ui.unit.sp
 import com.example.graduationproject.ui.theme.GraduationProjectTheme
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.items
-import androidx.compose.ui.platform.LocalContext
 
 private val BeigeBg = Color(0xFFFDFCF9)
 private val PrimaryPeach = Color(0xFFFF8A65)
@@ -55,15 +55,12 @@ data class PointRecord(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-
 fun RewardScreen(accountId: Int, currentPoints: Int, onPointsUpdated: (Int) -> Unit) {
     var showBottomSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var redeemingId by remember { mutableStateOf<Int?>(null) }
     val coroutineScope = rememberCoroutineScope()
-    val context = LocalContext.current
-
     val snackbarHostState = remember { SnackbarHostState() }
 
     val rewards = listOf(
@@ -78,85 +75,87 @@ fun RewardScreen(accountId: Int, currentPoints: Int, onPointsUpdated: (Int) -> U
         containerColor = BeigeBg,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { paddingValues ->
-        Column(
+        // 將 LazyVerticalGrid 作為主要的滾動容器
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 24.dp)
+                .padding(horizontal = 24.dp),
+            contentPadding = PaddingValues(bottom = 32.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 24.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = { showBottomSheet = true },
-                    colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = 0.5f))
-                ) {
-                    Icon(imageVector = Icons.Default.History, contentDescription = "點數明細", tint = TextMain)
+            // 使用 GridItemSpan(maxLineSpan) 讓 Header 佔滿整排，實現整體一起滾動
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 24.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { showBottomSheet = true },
+                            colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = 0.5f))
+                        ) {
+                            Icon(imageVector = Icons.Default.History, contentDescription = "點數明細", tint = TextMain)
+                        }
+                    }
+
+                    RewardHeader(currentPoints = currentPoints)
+
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    Text(
+                        text = "可兌換獎勵",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextMain,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
                 }
             }
 
-            RewardHeader(currentPoints = currentPoints)
+            items(rewards) { item ->
+                RewardCard(
+                    item = item,
+                    currentPoints = currentPoints,
+                    isLoading = redeemingId == item.id,
+                    onRedeemClick = {
+                        coroutineScope.launch {
+                            redeemingId = item.id
+                            try {
+                                val request = com.example.graduationproject.DataClass.RedeemRequest(
+                                    account_id = accountId,
+                                    reward_id = item.id
+                                )
+                                val response = com.example.graduationproject.api.ApiClient.apiService.redeemReward(request)
 
-            Spacer(modifier = Modifier.height(32.dp))
+                                if (response.isSuccessful && response.body()?.success == true) {
+                                    val newPoints = response.body()?.remaining_points ?: (currentPoints - item.points)
+                                    onPointsUpdated(newPoints)
 
-            Text(
-                text = "可兌換獎勵",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextMain,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 32.dp)
-            ) {
-                items(rewards) { item ->
-                    RewardCard(
-                        item = item,
-                        currentPoints = currentPoints,
-                        isLoading = redeemingId == item.id,
-                        onRedeemClick = {
-                            coroutineScope.launch {
-                                redeemingId = item.id
-                                try {
-                                    val request = com.example.graduationproject.DataClass.RedeemRequest(
-                                        account_id = accountId,
-                                        reward_id = item.id
-                                    )
-                                    val response = com.example.graduationproject.api.ApiClient.apiService.redeemReward(request)
-
-                                    if (response.isSuccessful && response.body()?.success == true) {
-                                        val newPoints = response.body()?.remaining_points ?: (currentPoints - item.points)
-                                        onPointsUpdated(newPoints)
-
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("兌換成功！")
-                                        }
-                                    } else {
-                                        val errorMsg = response.body()?.message ?: "兌換失敗"
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar(errorMsg)
-                                        }
-                                    }
-                                } catch (e: Exception) {
                                     coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("網路連線失敗")
+                                        snackbarHostState.showSnackbar("兌換成功！")
                                     }
-                                } finally {
-                                    redeemingId = null
+                                } else {
+                                    val errorMsg = response.body()?.message ?: "兌換失敗"
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar(errorMsg)
+                                    }
                                 }
+                            } catch (e: Exception) {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("網路連線失敗")
+                                }
+                            } finally {
+                                redeemingId = null
                             }
                         }
-                    )
-                }
+                    }
+                )
             }
         }
 
@@ -429,11 +428,11 @@ fun RewardCard(
                 elevation = if (canAfford) ButtonDefaults.buttonElevation(defaultElevation = 2.dp) else null
             ) {
                 if (isLoading) {
-                    CircularProgressIndicator(color = PrimaryPeach, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                 } else {
                     Text(
                         text = if (canAfford) "立即兌換" else "點數不足",
-                        fontSize = 20.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -450,3 +449,4 @@ fun RewardScreenPreview() {
         )
     }
 }
+
