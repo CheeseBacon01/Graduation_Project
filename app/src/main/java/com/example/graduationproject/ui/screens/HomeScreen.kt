@@ -30,6 +30,8 @@ import com.example.graduationproject.ui.components.ScaleButton
 import com.example.graduationproject.ui.theme.GraduationProjectTheme
 import com.example.graduationproject.ui.theme.LocalFontScale
 import com.example.graduationproject.ui.theme.scaledSp
+import kotlinx.coroutines.delay
+import java.util.Calendar
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -41,6 +43,15 @@ private val StatsPastelBlue = Color(0xFFE3F2FD)
 private val StatsPastelOrange = Color(0xFFFFF3E0)
 private val TextMain = Color(0xFF201A18)
 private val TextSub = Color(0xFF5D5D5D)
+
+private fun getGreetingText(): String {
+    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    return when (hour) {
+        in 5..10 -> "早安"
+        in 11..16 -> "午安"
+        else -> "晚安"
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -184,14 +195,25 @@ fun DashboardContent(
     isSurveyComplete: Boolean,
     onNavigateToSurvey: () -> Unit
 ) {
+    // 修改處：新增問候語狀態，並使用 LaunchedEffect 搭配 delay 定期更新
+    var greetingText by remember { mutableStateOf(getGreetingText()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60000) // 每分鐘檢查並更新一次問候語
+            greetingText = getGreetingText()
+        }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
         contentPadding = PaddingValues(top = 8.dp, bottom = 140.dp)
     ) {
         item {
             Column {
+                // 修改處：將原本寫死的「早安」改為動態的 greetingText
                 Text(
-                    text = "早安，${elderName}！",
+                    text = "${greetingText}，${elderName}！",
                     fontSize = 32.scaledSp(),
                     fontWeight = FontWeight.ExtraBold,
                     color = TextMain
