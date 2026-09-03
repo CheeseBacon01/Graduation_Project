@@ -118,6 +118,9 @@ class HomeFragment : Fragment() {
         binding.btnStairClimbingTest.setOnClickListener {
             findNavController().navigate(R.id.action_home_to_stair_climbing)
         }
+        binding.btnBalloonWalking.setOnClickListener {
+            findNavController().navigate(R.id.action_home_to_balloon_walking)
+        }
     }
 
     override fun onDestroyView() {

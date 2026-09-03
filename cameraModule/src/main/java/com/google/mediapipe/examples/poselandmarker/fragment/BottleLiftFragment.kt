@@ -38,7 +38,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.atan2
-
+import com.google.mediapipe.examples.poselandmarker.ExerciseResult
 class BottleLiftFragment : Fragment() {
 
     companion object {
@@ -372,6 +372,16 @@ class BottleLiftFragment : Fragment() {
     private fun completeTest() {
         isTestCompleted = true
         val finalAccuracy = calculateAvgAccuracy()
+
+        // --- 封包傳送 ---
+        val result = ExerciseResult(
+            exerciseName = "舉水瓶",
+            exerciseId = "A-3,B-2,C-3,D-3",
+            reps = currentRep + (currentSet - 1) * TOTAL_REPS_PER_SET,
+            sets = currentSet,
+            accuracy = finalAccuracy
+        )
+        viewModel.postResult(result)
         binding.overlay.updateTestInfo(currentRep, currentSet, "測試完成！", finalAccuracy, true, "次數")
         binding.resultPanel.visibility = View.VISIBLE
         binding.tvFinalResult.text = String.format(Locale.US, "總平均準確率: %.1f%%", finalAccuracy)

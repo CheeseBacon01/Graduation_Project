@@ -1,22 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    ~ Copyright 2023 The TensorFlow Authors. All Rights Reserved.
-    ~
-    ~ Licensed under the Apache License, Version 2.0 (the "License");
-    ~ you may not use this file except in compliance with the License.
-    ~ You may obtain a copy of the License at
-    ~
-    ~       http://www.apache.org/licenses/LICENSE-2.0
-    ~
-    ~ Unless required by applicable law or agreed to in writing, software
-    ~ distributed under the License is distributed on an "AS IS" BASIS,
-    ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    ~ See the License for the specific language governing permissions and
-    ~ limitations under the License.
--->
 <androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/camera_container"
+    android:id="@+id/balloon_walking_container"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -31,58 +16,58 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- 設定面板 -->
     <androidx.cardview.widget.CardView
         android:id="@+id/setupPanel"
-        android:layout_width="match_parent"
+        android:layout_width="320dp"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:layout_margin="24dp"
         app:cardCornerRadius="16dp"
-        app:cardElevation="8dp">
-
+        app:cardElevation="10dp">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:padding="24dp">
-
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:text="直線走路"
+                android:text="邊拍氣球邊走路"
                 android:textColor="@color/mp_color_primary"
                 android:textSize="22sp"
                 android:textStyle="bold" />
-
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="目標"
-                android:textColor="@color/mp_color_primary"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="在桌子、牆壁或家人旁起身站立。一腳腳跟觸碰另一腳腳尖，以直線方式小步走，後腳腳尖抵住前腳腳跟。"
-                android:textSize="16sp" />
-
+                android:layout_marginTop="20dp"
+                android:text="直線向前走，同時讓氣球在左右兩手間互相拍打，維持氣球不落地。"
+                android:textSize="16sp"
+                android:lineSpacingExtra="4dp" />
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnStartTraining"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="60dp"
                 android:layout_marginTop="24dp"
-                android:padding="12dp"
-                android:text="確認並開始訓練"
-                android:textSize="16sp" />
+                app:cornerRadius="10dp"
+                android:text="確認並開始訓練" />
         </LinearLayout>
     </androidx.cardview.widget.CardView>
 
-    <!-- 訓練結果對話框 -->
+    <TextView
+        android:id="@+id/tvCenterStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:padding="24dp"
+        android:shadowColor="#000000"
+        android:shadowDx="5"
+        android:shadowDy="5"
+        android:shadowRadius="10"
+        android:textColor="#FFFF00"
+        android:textSize="40sp"
+        android:textStyle="bold" />
+
     <androidx.cardview.widget.CardView
         android:id="@+id/resultPanel"
         android:layout_width="300dp"
@@ -102,7 +87,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:text="訓練完成"
+                android:text="拍氣球走路訓練完成"
                 android:textColor="@color/mp_color_primary"
                 android:textSize="22sp"
                 android:textStyle="bold" />
@@ -135,20 +120,5 @@
         app:backgroundTint="@color/mp_color_primary"
         app:srcCompat="@drawable/ic_baseline_photo_camera_24"
         app:tint="@android:color/white" />
-    <TextView
-        android:id="@+id/tvCenterStatus"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:gravity="center"
-        android:textColor="#CCFFFFFF"
-        android:textSize="80sp"
-        android:textStyle="bold"
-        android:shadowColor="#000000"
-        android:shadowDx="5"
-        android:shadowDy="5"
-        android:shadowRadius="5" />
-<!--    <include-->
-<!--        android:id="@+id/bottom_sheet_layout"-->
-<!--        layout="@layout/info_bottom_sheet" />-->
+
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

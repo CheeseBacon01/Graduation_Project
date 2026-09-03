@@ -41,17 +41,35 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
 
-// 1. 修改：移除了 Fragment 後面的三個 Listener 實作，解決衝突
-class CameraFragment : Fragment() {
+import android.app.AlertDialog
+import android.text.InputType
+import android.widget.EditText
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import android.graphics.Color
+import android.util.TypedValue
+import com.google.mediapipe.examples.poselandmarker.ExerciseResult
 
+class CameraFragment : Fragment() {
+    enum class WalkingState {
+        IDLE,
+        WAITING_FOR_DISTANCE,
+        COUNTDOWN,
+        WALKING,
+        FINISHED
+    }
+
+    private var walkingState = WalkingState.IDLE
     companion object {
         private const val TAG = "MultiModel Camera"
         private const val TOTAL_STEPS_PER_SET = 15
         private const val TOTAL_SETS = 3
         private const val REST_TIME_MS = 30000L
         private const val CONTACT_THRESHOLD = 0.12f
-        private const val VISIBILITY_THRESHOLD = 0.5f
-        private const val MIN_STEP_DISTANCE = 0.02f
+        private const val VISIBILITY_THRESHOLD = 0.3f
+        private const val MIN_STEP_DISTANCE = 0.0008f
     }
 
     private var _fragmentCameraBinding: FragmentCameraBinding? = null
@@ -139,8 +157,12 @@ class CameraFragment : Fragment() {
             viewModel.setExerciseMode(ExerciseMode.LEG_LIFT)
         }
         backgroundExecutor = Executors.newSingleThreadExecutor()
-        fragmentCameraBinding.viewFinder.post { setUpCamera() }
 
+        // 1. 修改：按下「確認並開始訓練」後才啟動相機並隱藏說明視窗
+        fragmentCameraBinding.btnStartTraining.setOnClickListener {
+            fragmentCameraBinding.setupPanel.visibility = View.GONE
+            showHeightDialog()
+        }
         // 3. 修改：在這裡使用匿名物件 (object :) 來分別建立獨立的 Listener
         backgroundExecutor.execute {
             poseLandmarkerHelper = PoseLandmarkerHelper(
@@ -171,6 +193,7 @@ class CameraFragment : Fragment() {
         }
 
         fragmentCameraBinding.fabSwitchCamera.setOnClickListener {
+            if (cameraProvider == null) return@setOnClickListener
             cameraFacing = if (cameraFacing == CameraSelector.LENS_FACING_FRONT) {
                 CameraSelector.LENS_FACING_BACK
             } else {
@@ -179,7 +202,46 @@ class CameraFragment : Fragment() {
             bindCameraUseCases()
         }
     }
+    private fun showHeightDialog() {
+        val input = EditText(requireContext())
+        input.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+        input.hint = "例如: 170"
 
+        AlertDialog.Builder(requireContext())
+            .setTitle("準備開始")
+            .setMessage("請輸入受測者的身高 (公分)：")
+            .setView(input)
+            .setCancelable(false)
+            .setPositiveButton("確定") { _, _ ->
+                val heightStr = input.text.toString()
+                // 將身高傳給 OverlayView 以計算距離
+                fragmentCameraBinding.overlay.userHeightCm = heightStr.toFloatOrNull() ?: 160f
+
+                // 啟動相機並進入等待距離狀態
+                fragmentCameraBinding.viewFinder.post { setUpCamera() }
+                walkingState = WalkingState.WAITING_FOR_DISTANCE
+                fragmentCameraBinding.tvCenterStatus.text = "請退後至\n大於 6 公尺處"
+                fragmentCameraBinding.tvCenterStatus.textSize = 50f
+            }
+            .show()
+    }
+    private fun startCountdownSequence() {
+        walkingState = WalkingState.COUNTDOWN
+        lifecycleScope.launch(Dispatchers.Main) {
+            fragmentCameraBinding.tvCenterStatus.textSize = 100f
+            fragmentCameraBinding.tvCenterStatus.text = "3"
+            delay(1000)
+            fragmentCameraBinding.tvCenterStatus.text = "2"
+            delay(1000)
+            fragmentCameraBinding.tvCenterStatus.text = "1"
+            delay(1000)
+            fragmentCameraBinding.tvCenterStatus.text = "GO!"
+
+            delay(800)
+            fragmentCameraBinding.tvCenterStatus.text = ""
+            walkingState = WalkingState.WALKING // 切換狀態，開始計步
+        }
+    }
     private fun setUpCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(requireContext())
         cameraProviderFuture.addListener({
@@ -262,7 +324,24 @@ class CameraFragment : Fragment() {
             activity?.runOnUiThread {
                 if (_fragmentCameraBinding != null && viewModel.currentExerciseMode == ExerciseMode.LEG_LIFT) {
                     val results = resultBundle.results.firstOrNull() ?: return@runOnUiThread
-                    processGaitLogic(results)
+
+                    // 取得 OverlayView 算出的目前距離
+                    val currentDistance = fragmentCameraBinding.overlay.currentDistance
+
+                    when (walkingState) {
+                        WalkingState.WAITING_FOR_DISTANCE -> {
+                            // 如果使用者退後超過 6 公尺，觸發倒數
+                            if (currentDistance >= 6.0f) {
+                                startCountdownSequence()
+                            }
+                        }
+                        WalkingState.WALKING -> {
+                            // 正式開始執行計步邏輯
+                            processGaitLogic(results)
+                        }
+                        else -> {}
+                    }
+
                     fragmentCameraBinding.overlay.setPoseResults(
                         results, resultBundle.inputImageHeight, resultBundle.inputImageWidth, RunningMode.LIVE_STREAM
                     )
@@ -315,22 +394,24 @@ class CameraFragment : Fragment() {
 
     // --- 以下保留你原本的 Gait Test 邏輯 ---
     private fun processGaitLogic(results: PoseLandmarkerResult) {
-        if (isResting || isTestCompleted || results.landmarks().isEmpty()) return
+        if (walkingState != WalkingState.WALKING || isResting || isTestCompleted || results.landmarks().isEmpty()) return
 
         val landmarks = results.landmarks()[0]
 
+        // 檢查腳踝與腳尖可見度
         val leftFootVisible = landmarks[29].visibility().orElse(0f) > VISIBILITY_THRESHOLD &&
                 landmarks[31].visibility().orElse(0f) > VISIBILITY_THRESHOLD
         val rightFootVisible = landmarks[30].visibility().orElse(0f) > VISIBILITY_THRESHOLD &&
                 landmarks[32].visibility().orElse(0f) > VISIBILITY_THRESHOLD
 
         if (!leftFootVisible || !rightFootVisible) {
-            fragmentCameraBinding.overlay.updateTestInfo(
-                currentStep, currentSet, "請將雙腳放入畫面", calculateAccuracy(), isTestCompleted
-            )
+            fragmentCameraBinding.tvCenterStatus.text = "請確保雙腳入鏡"
+            fragmentCameraBinding.tvCenterStatus.setTextColor(Color.RED)
+            fragmentCameraBinding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f)
             return
         }
 
+        // 平衡計算
         val shoulderBalance = 1.0f - abs(landmarks[11].y() - landmarks[12].y())
         totalShoulderBalance += (shoulderBalance * 100f).coerceIn(0f, 100f)
         balanceTicks++
@@ -340,18 +421,23 @@ class CameraFragment : Fragment() {
 
         val yDiff = leftHeel.y() - rightHeel.y()
         val currentLeadingFoot = when {
-            yDiff > MIN_STEP_DISTANCE -> 0
-            yDiff < -MIN_STEP_DISTANCE -> 1
+            yDiff > MIN_STEP_DISTANCE -> 0 // 左腳在前
+            yDiff < -MIN_STEP_DISTANCE -> 1 // 右腳在前
             else -> lastLeadingFoot
         }
 
-        if (lastLeadingFoot != -1 && currentLeadingFoot != lastLeadingFoot) {
+        // 偵測步數變化
+        if (currentLeadingFoot != -1 && currentLeadingFoot != lastLeadingFoot) {
             currentStep++
             totalStepsAccumulated++
 
             val contactDist = if (currentLeadingFoot == 0) abs(rightToe.y() - leftHeel.y()) else abs(leftToe.y() - rightHeel.y())
-
             if (contactDist < CONTACT_THRESHOLD) validContactCount++
+
+            // 更新大字顯示步數 (修正 2)
+            fragmentCameraBinding.tvCenterStatus.text = currentStep.toString()
+            fragmentCameraBinding.tvCenterStatus.setTextColor(Color.WHITE)
+            fragmentCameraBinding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 120f)
 
             if (currentStep >= TOTAL_STEPS_PER_SET) {
                 if (currentSet < TOTAL_SETS) startRestPeriod() else completeTest()
@@ -373,14 +459,26 @@ class CameraFragment : Fragment() {
 
     private fun startRestPeriod() {
         isResting = true
+        walkingState = WalkingState.IDLE
         restTimer = object : CountDownTimer(REST_TIME_MS, 1000) {
             override fun onTick(millisUntilFinished: Long) {
+                val sec = millisUntilFinished / 1000
                 fragmentCameraBinding.overlay.updateTestInfo(
-                    currentStep, currentSet, "休息 (${millisUntilFinished/1000}s)", calculateAccuracy()
+                    currentStep, currentSet, "休息 (${sec}s)", calculateAccuracy()
                 )
+                // 更新大字顯示休息 (修正 2)
+                fragmentCameraBinding.tvCenterStatus.text = "休息\n$sec"
+                fragmentCameraBinding.tvCenterStatus.setTextColor(Color.parseColor("#FBBC04"))
+                fragmentCameraBinding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 100f)
             }
             override fun onFinish() {
-                isResting = false; currentSet++; currentStep = 0; lastLeadingFoot = -1;
+                isResting = false; currentSet++; currentStep = 0; lastLeadingFoot = -1
+                walkingState = WalkingState.WAITING_FOR_DISTANCE
+
+                // 提示使用者再次退後
+                fragmentCameraBinding.tvCenterStatus.text = "請退後至\n大於 6 公尺處"
+                fragmentCameraBinding.tvCenterStatus.setTextColor(Color.WHITE)
+                fragmentCameraBinding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 50f)
             }
         }.start()
     }
@@ -388,6 +486,13 @@ class CameraFragment : Fragment() {
     private fun completeTest() {
         isTestCompleted = true
         val finalAccuracy = calculateAccuracy()
+        // --- 封包傳送 ---
+        val result = ExerciseResult(
+            exerciseName = "直線走路",
+            exerciseId = "A-6",
+            accuracy = finalAccuracy,
+        )
+        viewModel.postResult(result)
         fragmentCameraBinding.overlay.updateTestInfo(currentStep, currentSet, "測試完成！", finalAccuracy, true)
 
         fragmentCameraBinding.resultPanel.visibility = View.VISIBLE

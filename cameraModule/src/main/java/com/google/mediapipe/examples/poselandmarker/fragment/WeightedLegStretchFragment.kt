@@ -28,6 +28,7 @@ import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import com.google.mediapipe.examples.poselandmarker.ExerciseResult
 
 class WeightedLegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
@@ -303,6 +304,14 @@ class WeightedLegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerLi
     private fun completeTest() {
         isTestCompleted = true
         val finalAccuracy = calculateAvgAccuracy()
+        // --- 封包傳送 ---
+        val result = ExerciseResult(
+            exerciseName = "腳踝負重腿部訓練",
+            exerciseId = "A-4",
+            accuracy = finalAccuracy,
+        )
+        viewModel.postResult(result)
+
         binding.overlay.updateTestInfo(currentRep, currentSet, "測試完成！", finalAccuracy, true, "次數", TOTAL_SETS)
         binding.resultPanel.visibility = View.VISIBLE
         binding.tvFinalResult.text = String.format(Locale.US, "總平均準確率: %.1f%%", finalAccuracy)

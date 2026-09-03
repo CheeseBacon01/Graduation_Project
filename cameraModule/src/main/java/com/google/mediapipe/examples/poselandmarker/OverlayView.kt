@@ -315,37 +315,62 @@ class OverlayView(context: Context?, attrs: AttributeSet?) :
         }
 
         // --- 繪製偵測到的物品 (僅顯示水瓶，其餘忽略) ---
+//        objectResults?.let { result ->
+//            for (detection in result.detections()) {
+//                val category = detection.categories().firstOrNull()
+//                // 參考舉水瓶寫法：只框出 "bottle"
+//                if (category?.categoryName() == "bottle" && category.score() > 0.1f) {
+//                    val box = detection.boundingBox()
+//                    val left = box.left * scaleFactor
+//                    val top = box.top * scaleFactor
+//                    val right = box.right * scaleFactor
+//                    val bottom = box.bottom * scaleFactor
+//
+//                    // 繪製水瓶框線
+//                    canvas.drawRect(left, top, right, bottom, boxPaint)
+//
+//                    // 繪製水瓶距離 (假設標準水瓶高度約 23cm = 0.23m)
+//                    val bottleHeightNorm = box.height() / imageHeight
+//                    if (bottleHeightNorm > 0) {
+//                        val distance = (0.23f * 0.75f) / bottleHeightNorm
+//                        val bottleDistText = String.format(Locale.US, "瓶: %.2fm", distance)
+//
+//                        // 使用黃色文字顯示在瓶子上方
+//                        val oldColor = textPaint.color
+//                        val oldSize = textPaint.textSize
+//                        textPaint.color = Color.YELLOW
+//                        textPaint.textSize = 40f
+//                        canvas.drawText(bottleDistText, left, top - 10f, textPaint)
+//
+//                        // 還原文字設定
+//                        textPaint.color = oldColor
+//                        textPaint.textSize = oldSize
+//                    }
+//                }
+//            }
+//        }
         objectResults?.let { result ->
             for (detection in result.detections()) {
                 val category = detection.categories().firstOrNull()
-                // 參考舉水瓶寫法：只框出 "bottle"
-                if (category?.categoryName() == "bottle" && category.score() > 0.1f) {
+                val label = category?.categoryName()
+
+                // 修改：支援瓶子或氣球 (sports ball)
+                if ((label == "bottle" || label == "sports ball") && category.score() > 0.2f) {
                     val box = detection.boundingBox()
                     val left = box.left * scaleFactor
                     val top = box.top * scaleFactor
                     val right = box.right * scaleFactor
                     val bottom = box.bottom * scaleFactor
 
-                    // 繪製水瓶框線
+                    // 繪製框線
                     canvas.drawRect(left, top, right, bottom, boxPaint)
 
-                    // 繪製水瓶距離 (假設標準水瓶高度約 23cm = 0.23m)
-                    val bottleHeightNorm = box.height() / imageHeight
-                    if (bottleHeightNorm > 0) {
-                        val distance = (0.23f * 0.75f) / bottleHeightNorm
-                        val bottleDistText = String.format(Locale.US, "瓶: %.2fm", distance)
-                        
-                        // 使用黃色文字顯示在瓶子上方
-                        val oldColor = textPaint.color
-                        val oldSize = textPaint.textSize
-                        textPaint.color = Color.YELLOW
-                        textPaint.textSize = 40f
-                        canvas.drawText(bottleDistText, left, top - 10f, textPaint)
-                        
-                        // 還原文字設定
-                        textPaint.color = oldColor
-                        textPaint.textSize = oldSize
-                    }
+                    // 顯示標籤與分數
+                    val displayText = if (label == "sports ball") "Balloon" else "Bottle"
+                    val oldSize = textPaint.textSize
+                    textPaint.textSize = 40f
+                    canvas.drawText("$displayText: %.0f%%".format(category.score() * 100), left, top - 10f, textPaint)
+                    textPaint.textSize = oldSize
                 }
             }
         }

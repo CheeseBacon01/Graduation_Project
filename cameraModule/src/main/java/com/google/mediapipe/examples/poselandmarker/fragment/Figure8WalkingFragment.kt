@@ -36,6 +36,7 @@ import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import com.google.mediapipe.examples.poselandmarker.ExerciseResult
 
 class Figure8WalkingFragment : Fragment() {
 
@@ -46,10 +47,13 @@ class Figure8WalkingFragment : Fragment() {
         private const val LAP_REST_TIME_MS = 10000L // 圈間休息 10 秒
         private const val SET_REST_TIME_MS = 60000L // 組間休息 60 秒
         private const val VISIBILITY_THRESHOLD = 0.5f // 骨架可見度門檻
+        private const val BOTTLE_TIMEOUT_MS = 1500L // 1.5 秒容錯時間
     }
+
 
     enum class ExerciseState {
         WAITING_BOTTLES, // 等待放置兩瓶水
+        WAITING_USER,    // 等待使用者回到中間
         WALKING,         // 正在繞 8 字
         LAP_RESTING,     // 圈間休息
         SET_RESTING,     // 組間休息
@@ -85,7 +89,10 @@ class Figure8WalkingFragment : Fragment() {
     private var phase = 0 
     private var bottleNearDist = 0f
     private var bottleFarDist = 0f
-    
+    // 增加穩定偵測的變數
+    private var lastTimeTwoBottlesSeen = 0L
+    private var stableBottleBoxes = listOf<android.graphics.RectF>()
+
     private lateinit var backgroundExecutor: ExecutorService
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -207,6 +214,11 @@ class Figure8WalkingFragment : Fragment() {
                     boxes.add(detection.boundingBox())
                 }
             }
+            // --- 新增穩定邏輯 ---
+            if (boxes.size >= 2) {
+                stableBottleBoxes = boxes.toList()
+                lastTimeTwoBottlesSeen = SystemClock.uptimeMillis()
+            }
             latestBottleBoxes = boxes.toList()
             
             activity?.runOnUiThread {
@@ -235,34 +247,44 @@ class Figure8WalkingFragment : Fragment() {
         if (currentState == ExerciseState.COMPLETED) return
 
         val landmarks = results.landmarks().firstOrNull()
-        val bottlesCount = latestBottleBoxes.size
+
+        // --- 修改：使用穩定偵測邏輯 ---
+        val currentTime = SystemClock.uptimeMillis()
+        val isBottlesStable = (currentTime - lastTimeTwoBottlesSeen) < BOTTLE_TIMEOUT_MS
+
+        // 如果目前偵測到 2 瓶就用目前的；如果沒偵測到但還在容錯時間內，就用上次存下的
+        val effectiveBoxes = if (latestBottleBoxes.size >= 2) {
+            latestBottleBoxes
+        } else if (isBottlesStable) {
+            stableBottleBoxes
+        } else {
+            emptyList()
+        }
+
+        val bottlesCount = effectiveBoxes.size
+        // --------------------------
+
         var bottleDistanceMeters = 0f
 
-        // 1. 水瓶偵測與間距計算 (前後擺法)
         if (bottlesCount < 2) {
             if (currentState == ExerciseState.WALKING) {
                 updateUI("水瓶消失，請保持水瓶在畫面內")
-                totalAccuracyAccumulated += 50f
-                accuracyTicks++
+                // ... 略
             } else if (currentState == ExerciseState.WAITING_BOTTLES) {
                 updateUI("請在地上前後放置兩瓶水")
                 return
             }
         } else {
-            // 前後擺法：依據底部 Y 座標排序，底部在越下面 (Y較大) 的越近
-            val sortedBottles = latestBottleBoxes.sortedByDescending { it.bottom }
+            // 使用穩定後的 effectiveBoxes 進行後續計算
+            val sortedBottles = effectiveBoxes.sortedByDescending { it.bottom }
             val nearBox = sortedBottles[0]
             val farBox = sortedBottles[1]
 
-            // 根據水瓶在畫面中的高度比率估計距離 (假設標準水瓶高度約 30cm = 0.30m)
-            // 焦距常數調整為 0.8f 以修正水瓶距離過近的問題
             val nearHeightNorm = nearBox.height() / imgHeight
             val farHeightNorm = farBox.height() / imgHeight
 
             bottleNearDist = (0.30f * 0.8f) / nearHeightNorm
             bottleFarDist = (0.30f * 0.8f) / farHeightNorm
-
-            // 兩瓶水的前後物理距離差
             bottleDistanceMeters = bottleFarDist - bottleNearDist
         }
 
@@ -304,14 +326,38 @@ class Figure8WalkingFragment : Fragment() {
         when (currentState) {
             ExerciseState.WAITING_BOTTLES -> {
                 if (bottlesCount >= 2) {
-                    if (bottleDistanceMeters < 1.0f) {
-                        updateUI(String.format(Locale.US, "前後間距不足\n請拉開至 1m 以上\n(目前: %.2fm)", bottleDistanceMeters))
-                    } else {
-                        currentState = ExerciseState.WALKING
-                        phase = 0
+                    // 修改 1：檢查近端水瓶是否距離 1m 以上
+                    if (bottleNearDist < 1.5f) {
+                        updateUI(String.format(Locale.US, "近端水瓶太近！\n請將水瓶移至 1.5m 外\n(目前: %.2fm)", bottleNearDist))
                     }
+                    // 檢查兩瓶水間距是否足夠
+                    else if (bottleDistanceMeters < 0.7f) {
+                        updateUI(String.format(Locale.US, "水瓶前後間距不足\n請拉開\n(目前: %.2fm)", bottleDistanceMeters))
+                    }
+                    else {
+                        // 條件達成，進入等待使用者就位狀態
+                        currentState = ExerciseState.WAITING_USER
+                    }
+                } else {
+                    updateUI("請在地面前後放置兩瓶水")
                 }
             }
+
+            ExerciseState.WAITING_USER -> {
+                // 修改 2：要求使用者進入兩瓶水的中間
+                val midDist = (bottleNearDist + bottleFarDist) / 2f
+
+                // 判斷使用者是否在兩瓶水之間 (容許誤差 0.3m)
+                if (personDistance > bottleNearDist + 0.1f && personDistance < bottleFarDist - 0.1f) {
+                    // 使用者已就位，準備開始繞 8 字
+                    currentState = ExerciseState.WALKING
+                    phase = 0
+                    updateUI("就位成功！\n請開始繞過遠端水瓶")
+                } else {
+                    updateUI(String.format(Locale.US, "請進入兩瓶水的中間\n(目前距離: %.2fm)", personDistance))
+                }
+            }
+
             ExerciseState.WALKING -> {
                 // 計算準確率：只要人在畫面內且瓶子在就是 100
                 totalAccuracyAccumulated += 100f
@@ -331,7 +377,7 @@ class Figure8WalkingFragment : Fragment() {
                     }
                     2 -> { // 在中間，往近處走，繞過近瓶
                         updateUI("請繞過近端的水瓶")
-                        if (personDistance < bottleNearDist - margin) phase = 3
+                        if (personDistance < bottleNearDist) phase = 3
                     }
                     3 -> { // 在近處，往回走
                         updateUI("請回到起點\n完成一圈")
@@ -392,6 +438,13 @@ class Figure8WalkingFragment : Fragment() {
     private fun completeTest() {
         currentState = ExerciseState.COMPLETED
         val finalAccuracy = calculateAvgAccuracy()
+        // --- 封包傳送 ---
+        val result = ExerciseResult(
+            exerciseName = "8字步訓練",
+            exerciseId = "C-6,D-7",
+            accuracy = finalAccuracy,
+        )
+        viewModel.postResult(result)
         binding.tvCenterStatus.text = ""
         binding.overlay.updateTestInfo(currentLap, currentSet, "測試完成！", finalAccuracy, true, "圈數", TOTAL_SETS)
         binding.resultPanel.visibility = View.VISIBLE

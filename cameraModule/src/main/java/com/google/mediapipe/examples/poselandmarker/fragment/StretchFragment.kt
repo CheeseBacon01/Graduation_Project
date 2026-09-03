@@ -45,16 +45,16 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.atan2
-
+import com.google.mediapipe.examples.poselandmarker.ExerciseResult
 class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     companion object {
         private const val TAG = "StretchFragment"
-        private const val HOLD_TIME_MS = 5000L // 維持 10 秒
-        private const val RELAX_TIME_MS = 3000L // 放鬆 5 秒
+        private const val HOLD_TIME_MS = 10000L // 維持 10 秒 V
+        private const val RELAX_TIME_MS = 5000L // 放鬆 5 秒 V
         private const val TOTAL_REPS_PER_SET = 3
-//        private const val TOTAL_SETS = 3
-        private const val TOTAL_SETS = 1
+        private const val TOTAL_SETS = 3
+//        private const val TOTAL_SETS = 1
         private const val SET_REST_TIME_MS = 30000L
         private const val ANGLE_THRESHOLD = 150.0 // 手臂拉直角度門檻
         private const val VISIBILITY_THRESHOLD = 0.5f
@@ -312,6 +312,13 @@ class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     private fun completeTest() {
         isTestCompleted = true
         val finalAccuracy = calculateAvgAccuracy()
+        // --- 封包傳送 ---
+        val result = ExerciseResult(
+            exerciseName = "手臂伸展",
+            exerciseId = "A-7,B-7,C-8,D-8",
+            accuracy = finalAccuracy,
+        )
+        viewModel.postResult(result)
         binding.overlay.updateTestInfo(currentRep, currentSet, "測試完成！", finalAccuracy, true, "次數")
         binding.resultPanel.visibility = View.VISIBLE
         binding.tvFinalResult.text = String.format(Locale.US, "總平均準確率: %.1f%%", finalAccuracy)

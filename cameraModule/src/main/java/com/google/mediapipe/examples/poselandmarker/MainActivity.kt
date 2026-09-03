@@ -77,6 +77,13 @@ class MainActivity : AppCompatActivity() {
         activityMainBinding.navigation.setOnNavigationItemReselectedListener {
             // ignore the reselection
         }
+        viewModel.lastResult.observe(this) { result ->
+            android.widget.Toast.makeText(
+                this,
+                "運動完成：${result.exerciseName}\n準確度：${String.format("%.1f", result.accuracy)}%",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     override fun onBackPressed() {

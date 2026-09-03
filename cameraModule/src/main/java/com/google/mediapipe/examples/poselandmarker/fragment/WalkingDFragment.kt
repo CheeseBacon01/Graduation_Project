@@ -29,6 +29,7 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
+import com.google.mediapipe.examples.poselandmarker.ExerciseResult
 
 class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
@@ -320,6 +321,18 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     private fun completeTest() {
         isTestCompleted = true
         val finalAccuracy = calculateAccuracy()
+        val totalSeconds = MAX_SETS * WALK_TIME_SEC
+
+        // --- 封包傳送 ---
+        val result = ExerciseResult(
+            exerciseName = "步行訓練(D級)",
+            exerciseId = "D-1",
+            steps = totalStepCount,
+            sets = MAX_SETS,
+            accuracy = finalAccuracy,
+            durationSeconds = totalSeconds
+        )
+        viewModel.postResult(result)
         binding.overlay.updateTestInfo(totalStepCount, currentSet, "訓練完成！", finalAccuracy, true, "總步數", MAX_SETS)
         binding.resultPanel.visibility = View.VISIBLE
         binding.btnRestDone.visibility = View.GONE

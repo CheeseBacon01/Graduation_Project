@@ -44,7 +44,7 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
-
+import com.google.mediapipe.examples.poselandmarker.ExerciseResult
 class SimulatedSittingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     companion object {
@@ -240,6 +240,13 @@ class SimulatedSittingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
     private fun completeTest() {
         isTestCompleted = true
         val finalAccuracy = calculateAvgAccuracy()
+        // --- 封包傳送 ---
+        val result = ExerciseResult(
+            exerciseName = "模擬坐下",
+            exerciseId = "B-4",
+            accuracy = finalAccuracy,
+        )
+        viewModel.postResult(result)
         binding.overlay.updateTestInfo(currentRep, currentSet, "測試完成！", finalAccuracy, true, "次數")
         binding.resultPanel.visibility = View.VISIBLE
         binding.tvFinalResult.text = String.format(Locale.US, "總平均準確率: %.1f%%", finalAccuracy)

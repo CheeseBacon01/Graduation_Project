@@ -45,10 +45,21 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
 
+import android.app.AlertDialog
+import android.graphics.Color
+import android.text.InputType
+import android.util.TypedValue
+import android.widget.EditText
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+
 class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     enum class Mode { TOE, HEEL }
-    enum class State { WALKING, RESTING_SHORT, RESTING_SET }
+    enum class State { WAITING_FOR_DISTANCE, COUNTDOWN, WALKING, RESTING_SHORT, RESTING_SET }
 
     companion object {
         private const val TAG = "ToeHeelWalkingFragment"
@@ -56,9 +67,9 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
         private const val TOTAL_SETS = 3
         private const val SHORT_REST_MS = 5000L
         private const val LONG_REST_MS = 60000L
-        private const val VISIBILITY_THRESHOLD = 0.5f
-        private const val MIN_STEP_DISTANCE = 0.02f
-        private const val TOE_HEEL_Y_DIFF_THRESHOLD = 0.015f // 判定踮腳或腳跟走的位移閾值
+        private const val VISIBILITY_THRESHOLD = 0.3f
+        private const val MIN_STEP_DISTANCE = 0.0008f
+        private const val TOE_HEEL_Y_DIFF_THRESHOLD = 0.0008f // 判定踮腳或腳跟走的位移閾值
     }
 
     private var _binding: FragmentToeHeelWalkingBinding? = null
@@ -101,7 +112,7 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
         binding.btnStartTraining.setOnClickListener {
             isTrainingStarted = true
             binding.setupPanel.visibility = View.GONE
-
+            showHeightDialog()
             binding.viewFinder.post { setUpCamera() }
             backgroundExecutor.execute {
                 poseLandmarkerHelper = PoseLandmarkerHelper(
@@ -165,15 +176,62 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
         }
     }
 
+    private fun showHeightDialog() {
+        val input = EditText(requireContext())
+        input.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+        input.hint = "例如: 170"
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("準備開始")
+            .setMessage("請輸入受測者的身高 (公分)：")
+            .setView(input)
+            .setCancelable(false)
+            .setPositiveButton("確定") { _, _ ->
+                val heightStr = input.text.toString()
+                binding.overlay.userHeightCm = heightStr.toFloatOrNull() ?: 160f
+
+                binding.viewFinder.post { setUpCamera() }
+                currentState = State.WAITING_FOR_DISTANCE
+                binding.tvCenterStatus.text = "請退後至\n大於 4 公尺處"
+                binding.tvCenterStatus.setTextColor(Color.WHITE)
+                binding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 50f)
+            }
+            .show()
+    }
+
+    private fun startCountdownSequence() {
+        currentState = State.COUNTDOWN
+        lifecycleScope.launch(Dispatchers.Main) {
+            binding.tvCenterStatus.textSize = 100f
+            binding.tvCenterStatus.text = "3"
+            delay(1000)
+            binding.tvCenterStatus.text = "2"
+            delay(1000)
+            binding.tvCenterStatus.text = "1"
+            delay(1000)
+            binding.tvCenterStatus.text = "GO!"
+            delay(800)
+            binding.tvCenterStatus.text = ""
+            currentState = State.WALKING
+        }
+    }
+
     override fun onResults(resultBundle: PoseLandmarkerHelper.ResultBundle) {
         if (!isTrainingStarted) return
         activity?.runOnUiThread {
             if (_binding != null) {
                 val results = resultBundle.results.first()
-                processLogic(results)
-                binding.overlay.setPoseResults(
-                    results, resultBundle.inputImageHeight, resultBundle.inputImageWidth, RunningMode.LIVE_STREAM
-                )
+                val currentDistance = binding.overlay.currentDistance
+
+                when (currentState) {
+                    State.WAITING_FOR_DISTANCE -> {
+                        if (currentDistance >= 4.0f) startCountdownSequence()
+                    }
+                    State.WALKING -> processLogic(results)
+                    else -> {}
+                }
+
+                binding.overlay.setPoseResults(results, resultBundle.inputImageHeight, resultBundle.inputImageWidth, RunningMode.LIVE_STREAM)
             }
         }
     }
@@ -182,40 +240,49 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
         if (isTestCompleted || results.landmarks().isEmpty() || currentState != State.WALKING) return
 
         val landmarks = results.landmarks()[0]
-        
+
         // 1. 可見度檢查
         val requiredIndices = intArrayOf(11, 12, 23, 24, 27, 28, 29, 30, 31, 32)
         val isVisible = requiredIndices.all { landmarks[it].visibility().orElse(0f) > VISIBILITY_THRESHOLD }
-        
+
         if (!isVisible) {
-            binding.overlay.updateTestInfo(stepsInCurrentPhase, currentSet, "請將全身放入畫面", calculateAvgAccuracy(), isTestCompleted, "步數", 3)
+            binding.tvCenterStatus.text = "請確保全身入鏡"
+            binding.tvCenterStatus.setTextColor(Color.RED)
+            binding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f)
             return
         }
 
-        // 2. 平衡感與正確姿勢判定
+        // 2. 姿勢判定
         val leftHeel = landmarks[29]; val rightHeel = landmarks[30]
         val leftToe = landmarks[31]; val rightToe = landmarks[32]
-        
         val isPoseCorrect = when (currentPhaseMode) {
             Mode.TOE -> (leftHeel.y() < leftToe.y() - TOE_HEEL_Y_DIFF_THRESHOLD) && (rightHeel.y() < rightToe.y() - TOE_HEEL_Y_DIFF_THRESHOLD)
             Mode.HEEL -> (leftToe.y() < leftHeel.y() - TOE_HEEL_Y_DIFF_THRESHOLD) && (rightToe.y() < rightHeel.y() - TOE_HEEL_Y_DIFF_THRESHOLD)
         }
 
-        // 3. 步數偵測
+        // 3. 步數偵測 (修正：允許第一步偵測)
         val yDiff = leftHeel.y() - rightHeel.y()
         val currentLeadingFoot = when {
-            yDiff > MIN_STEP_DISTANCE -> 0 
-            yDiff < -MIN_STEP_DISTANCE -> 1 
+            yDiff > MIN_STEP_DISTANCE -> 0
+            yDiff < -MIN_STEP_DISTANCE -> 1
             else -> lastLeadingFoot
         }
 
-        if (lastLeadingFoot != -1 && currentLeadingFoot != lastLeadingFoot) {
+        // 修改：只要腳部狀態改變且不為空就計步
+        if (currentLeadingFoot != -1 && currentLeadingFoot != lastLeadingFoot) {
             stepsInCurrentPhase++
             if (stepsInCurrentPhase >= STEPS_PER_PHASE) {
                 moveToNextPhase()
+                return // 進入下一階段，不再更新大字
             }
         }
         lastLeadingFoot = currentLeadingFoot
+
+        // 4. 更新大字顯示資訊 (步數 + 模式)
+        val phaseTitle = if (currentPhaseMode == Mode.TOE) "腳尖走路" else "腳跟走路"
+        binding.tvCenterStatus.text = "$phaseTitle\n$stepsInCurrentPhase 步"
+        binding.tvCenterStatus.setTextColor(if (isPoseCorrect) Color.WHITE else Color.RED)
+        binding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 80f)
 
         // 4. 準確率計算
         val shoulderBalance = 1.0f - abs(landmarks[11].y() - landmarks[12].y())
@@ -250,18 +317,31 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
         timer?.cancel()
         timer = object : CountDownTimer(durationMs, 1000) {
             override fun onTick(ms: Long) {
-                currentTimerStatusText = "$message (${ms/1000}s)"
-                binding.overlay.updateTestInfo(stepsInCurrentPhase, currentSet, currentTimerStatusText, calculateAvgAccuracy(), isTestCompleted, "步數", 3)
+                val sec = ms / 1000
+                // 大字顯示休息資訊
+                binding.tvCenterStatus.text = "休息中\n$sec 秒"
+                binding.tvCenterStatus.setTextColor(Color.YELLOW)
+                binding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 80f)
+
+                binding.overlay.updateTestInfo(stepsInCurrentPhase, currentSet, "$message ($sec s)", calculateAvgAccuracy(), isTestCompleted, "步數", 3)
             }
             override fun onFinish() {
-                stepsInCurrentPhase = 0 // 休息結束後才歸零步數
+                // 切換階段
                 if (targetState == State.RESTING_SHORT) {
                     currentPhaseMode = Mode.HEEL
                 } else if (targetState == State.RESTING_SET) {
-                    currentSet++ // 組間休息結束才增加組數
+                    currentSet++
                     currentPhaseMode = Mode.TOE
                 }
-                currentState = State.WALKING
+
+                // 修正：休息結束後重置參數並要求回到 4 公尺
+                stepsInCurrentPhase = 0
+                lastLeadingFoot = -1
+                currentState = State.WAITING_FOR_DISTANCE
+
+                binding.tvCenterStatus.text = "請退後至\n大於 4 公尺處"
+                binding.tvCenterStatus.setTextColor(Color.WHITE)
+                binding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 50f)
             }
         }.start()
     }
@@ -269,6 +349,15 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
     private fun completeTest() {
         isTestCompleted = true
         val finalAccuracy = calculateAvgAccuracy()
+
+        // --- 封包傳送 ---
+        val result = ExerciseResult(
+            exerciseName = "腳尖腳跟走路",
+            exerciseId = "B-5",
+            accuracy = finalAccuracy,
+        )
+        viewModel.postResult(result)
+
         binding.overlay.updateTestInfo(stepsInCurrentPhase, currentSet, "測試完成！", finalAccuracy, true, "步數", 3)
         binding.resultPanel.visibility = View.VISIBLE
         binding.tvFinalResult.text = String.format(Locale.US, "總平均準確率: %.1f%%", finalAccuracy)
