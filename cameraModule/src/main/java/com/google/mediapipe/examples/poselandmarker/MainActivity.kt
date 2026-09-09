@@ -29,6 +29,9 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_TARGET_FRAGMENT = "extra_target_fragment"
 
+        const val EXTRA_ACCOUNT_ID = "extra_account_id"
+        const val EXTRA_USER_LEVEL = "extra_user_level"
+
         fun resolveTargetDestination(targetFragment: String): Int? {
             return when (targetFragment) {
                 "camera_fragment" -> R.id.camera_fragment
@@ -59,6 +62,10 @@ class MainActivity : AppCompatActivity() {
         activityMainBinding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(activityMainBinding.root)
 
+        val accountId = intent.getIntExtra(EXTRA_ACCOUNT_ID, -1)
+        val userLevel = intent.getStringExtra(EXTRA_USER_LEVEL) ?: ""
+        viewModel.setAccountInfo(accountId, userLevel)
+
         val navHostFragment =
             supportFragmentManager.findFragmentById(R.id.fragment_container) as NavHostFragment
         val navController = navHostFragment.navController
@@ -83,6 +90,16 @@ class MainActivity : AppCompatActivity() {
                 "運動完成：${result.exerciseName}\n準確度：${String.format("%.1f", result.accuracy)}%",
                 android.widget.Toast.LENGTH_LONG
             ).show()
+        }
+
+        viewModel.saveStatus.observe(this) { status ->
+            if (status == SaveStatus.FAILED) {
+                android.widget.Toast.makeText(
+                    this,
+                    "訓練成績同步失敗，請確認網路連線",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 

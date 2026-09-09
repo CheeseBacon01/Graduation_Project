@@ -11,6 +11,7 @@ import com.example.graduationproject.DataClass.GetPointHistoryRequest
 import com.example.graduationproject.DataClass.GetPointHistoryResponse
 import com.example.graduationproject.DataClass.GetPointsRequest
 import com.example.graduationproject.DataClass.GetPointsResponse
+import com.example.graduationproject.DataClass.GetRewardsResponse
 import com.example.graduationproject.DataClass.LoginRequest
 import com.example.graduationproject.DataClass.LoginResponse
 import com.example.graduationproject.DataClass.RedeemRequest
@@ -26,6 +27,7 @@ import com.example.graduationproject.DataClass.VerifyOtpRequest
 import com.example.graduationproject.DataClass.VerifyOtpResponse
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.GET
 import retrofit2.http.POST
 
 interface ApiService {
@@ -84,4 +86,7 @@ interface ApiService {
 
     @POST("api/save_exercise_record.php")
     suspend fun saveExerciseRecord(@Body request: SaveExerciseRecordRequest): Response<CommonResponse>
+
+    @GET("api/get_all_products.php")
+    suspend fun getRewards(): Response<GetRewardsResponse>
 }

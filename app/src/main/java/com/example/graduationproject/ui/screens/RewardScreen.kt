@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
@@ -12,8 +11,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.MonetizationOn
-import androidx.compose.material.icons.filled.Checkroom
-import androidx.compose.material.icons.filled.LocalPharmacy
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,7 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -29,6 +26,8 @@ import androidx.compose.ui.unit.sp
 import com.example.graduationproject.ui.theme.GraduationProjectTheme
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
 
 private val BeigeBg = Color(0xFFFDFCF9)
 private val PrimaryPeach = Color(0xFFFF8A65)
@@ -38,12 +37,13 @@ private val TextSub = Color(0xFF5D5D5D)
 private val PositiveGreen = Color(0xFF4CAF50)
 private val NegativeRed = Color(0xFFE57373)
 
+// 修改處：改成對應資料庫真實商品，imageUrl 為 null 時 UI 會 fallback 成禮物盒圖示
 data class RewardItem(
     val id: Int,
     val name: String,
     val points: Int,
-    val icon: ImageVector,
-    val iconColor: Color
+    val quantity: Int,
+    val imageUrl: String?
 )
 
 data class PointRecord(
@@ -55,107 +55,137 @@ data class PointRecord(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+
 fun RewardScreen(accountId: Int, currentPoints: Int, onPointsUpdated: (Int) -> Unit) {
     var showBottomSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var redeemingId by remember { mutableStateOf<Int?>(null) }
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val rewards = listOf(
-        RewardItem(1, "運動排汗衫", 500, Icons.Default.Checkroom, Color(0xFF64B5F6)),
-        RewardItem(2, "綜合維他命", 1200, Icons.Default.LocalPharmacy, Color(0xFF81C784)),
-        RewardItem(3, "時尚遮陽帽", 300, Icons.Default.Checkroom, Color(0xFFFFB74D)),
-        RewardItem(4, "健康按摩球", 800, Icons.Default.CardGiftcard, Color(0xFFBA68C8))
-    )
+    // 修改處：改由後端讀取真實商品資料（含圖片），不再寫死
+    var rewards by remember { mutableStateOf<List<RewardItem>>(emptyList()) }
+    var isLoadingRewards by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        isLoadingRewards = true
+        try {
+            val response = com.example.graduationproject.api.ApiClient.apiService.getRewards()
+            if (response.isSuccessful && response.body()?.success == true) {
+                rewards = response.body()?.data?.map { item ->
+                    RewardItem(
+                        id = item.id,
+                        name = item.name,
+                        points = item.price,
+                        quantity = item.quantity,
+                        imageUrl = item.image
+                    )
+                } ?: emptyList()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            isLoadingRewards = false
+        }
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = BeigeBg,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { paddingValues ->
-        // 將 LazyVerticalGrid 作為主要的滾動容器
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 24.dp),
-            contentPadding = PaddingValues(bottom = 32.dp)
+                .padding(horizontal = 24.dp)
         ) {
-            // 使用 GridItemSpan(maxLineSpan) 讓 Header 佔滿整排，實現整體一起滾動
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 24.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = { showBottomSheet = true },
-                            colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = 0.5f))
-                        ) {
-                            Icon(imageVector = Icons.Default.History, contentDescription = "點數明細", tint = TextMain)
-                        }
-                    }
-
-                    RewardHeader(currentPoints = currentPoints)
-
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    Text(
-                        text = "可兌換獎勵",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextMain,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 24.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = { showBottomSheet = true },
+                    colors = IconButtonDefaults.iconButtonColors(containerColor = Color.White.copy(alpha = 0.5f))
+                ) {
+                    Icon(imageVector = Icons.Default.History, contentDescription = "點數明細", tint = TextMain)
                 }
             }
 
-            items(rewards) { item ->
-                RewardCard(
-                    item = item,
-                    currentPoints = currentPoints,
-                    isLoading = redeemingId == item.id,
-                    onRedeemClick = {
-                        coroutineScope.launch {
-                            redeemingId = item.id
-                            try {
-                                val request = com.example.graduationproject.DataClass.RedeemRequest(
-                                    account_id = accountId,
-                                    reward_id = item.id
-                                )
-                                val response = com.example.graduationproject.api.ApiClient.apiService.redeemReward(request)
+            RewardHeader(currentPoints = currentPoints)
 
-                                if (response.isSuccessful && response.body()?.success == true) {
-                                    val newPoints = response.body()?.remaining_points ?: (currentPoints - item.points)
-                                    onPointsUpdated(newPoints)
+            Spacer(modifier = Modifier.height(32.dp))
 
-                                    coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("兌換成功！")
-                                    }
-                                } else {
-                                    val errorMsg = response.body()?.message ?: "兌換失敗"
-                                    coroutineScope.launch {
-                                        snackbarHostState.showSnackbar(errorMsg)
-                                    }
-                                }
-                            } catch (e: Exception) {
+            Text(
+                text = "可兌換獎勵",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextMain,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            if (isLoadingRewards) {
+                Box(modifier = Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = PrimaryPeach)
+                }
+            } else if (rewards.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
+                    Text("目前沒有可兌換的獎勵", fontSize = 18.sp, color = TextSub)
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 32.dp)
+                ) {
+                    items(rewards) { item ->
+                        RewardCard(
+                            item = item,
+                            currentPoints = currentPoints,
+                            isLoading = redeemingId == item.id,
+                            onRedeemClick = {
                                 coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("網路連線失敗")
+                                    redeemingId = item.id
+                                    try {
+                                        val request = com.example.graduationproject.DataClass.RedeemRequest(
+                                            account_id = accountId,
+                                            reward_id = item.id
+                                        )
+                                        val response = com.example.graduationproject.api.ApiClient.apiService.redeemReward(request)
+
+                                        if (response.isSuccessful && response.body()?.success == true) {
+                                            val newPoints = response.body()?.remaining_points ?: (currentPoints - item.points)
+                                            onPointsUpdated(newPoints)
+
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar("兌換成功！")
+                                            }
+                                        } else {
+                                            val errorMsg = response.body()?.message ?: "兌換失敗"
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar(errorMsg)
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("網路連線失敗")
+                                        }
+                                    } finally {
+                                        redeemingId = null
+                                    }
                                 }
-                            } finally {
-                                redeemingId = null
                             }
-                        }
+                        )
                     }
-                )
+                }
             }
         }
 
@@ -210,32 +240,21 @@ fun PointsDetailContent(accountId: Int) {
         Text(
             text = "點數明細",
             fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.ExtraBold,
             color = TextMain,
-            modifier = Modifier.padding(vertical = 16.dp)
+            modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        PrimaryTabRow(
+        TabRow(
             selectedTabIndex = selectedTabIndex,
             containerColor = Color.Transparent,
-            contentColor = PrimaryPeach,
-            indicator = { TabRowDefaults.PrimaryIndicator(
-                modifier = Modifier.tabIndicatorOffset(selectedTabIndex),
-                color = PrimaryPeach
-            )}
+            contentColor = PrimaryPeach
         ) {
             tabs.forEachIndexed { index, title ->
                 Tab(
                     selected = selectedTabIndex == index,
                     onClick = { selectedTabIndex = index },
-                    text = {
-                        Text(
-                            text = title,
-                            fontSize = 18.sp,
-                            fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Medium,
-                            color = if (selectedTabIndex == index) PrimaryPeach else TextSub
-                        )
-                    }
+                    text = { Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
                 )
             }
         }
@@ -264,9 +283,9 @@ fun PointsDetailContent(accountId: Int) {
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
-                        val currentRecords =
+                        val currentRecords2 =
                             if (selectedTabIndex == 0) earningRecords else redemptionRecords
-                        if (currentRecords.isEmpty()) {
+                        if (currentRecords2.isEmpty()) {
                             item {
                                 Box(
                                     modifier = Modifier.fillParentMaxSize(),
@@ -276,7 +295,7 @@ fun PointsDetailContent(accountId: Int) {
                                 }
                             }
                         } else {
-                            items(currentRecords) { record ->
+                            items(currentRecords2) { record ->
                                 RecordItem(record)
                             }
                         }
@@ -368,7 +387,7 @@ fun RewardCard(
     isLoading: Boolean,
     onRedeemClick: () -> Unit
 ) {
-    val canAfford = currentPoints >= item.points
+    val canAfford = currentPoints >= item.points && item.quantity > 0
     val pointsNeeded = item.points - currentPoints
 
     ElevatedCard(
@@ -382,12 +401,29 @@ fun RewardCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // 插畫
+            // 修改處：優先顯示管理員上傳的真實商品照片，沒有圖片才 fallback 成禮物盒圖示
             Box(
-                modifier = Modifier.size(70.dp).background(item.iconColor.copy(alpha = 0.1f), RoundedCornerShape(20.dp)),
+                modifier = Modifier
+                    .size(70.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(PrimaryPeach.copy(alpha = 0.1f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(imageVector = item.icon, contentDescription = null, modifier = Modifier.size(40.dp), tint = item.iconColor)
+                if (item.imageUrl != null) {
+                    AsyncImage(
+                        model = item.imageUrl,
+                        contentDescription = item.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.CardGiftcard,
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp),
+                        tint = PrimaryPeach
+                    )
+                }
             }
 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -400,7 +436,12 @@ fun RewardCard(
                     color = if (canAfford) PrimaryPeach else TextSub.copy(alpha = 0.5f)
                 )
 
-                if (!canAfford) {
+                if (item.quantity <= 0) {
+                    Text(
+                        text = "已兌換完畢", fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                        color = Color(0xFFE57373), modifier = Modifier.padding(top = 4.dp)
+                    )
+                } else if (!canAfford) {
                     Text(
                         text = "還差 $pointsNeeded P", fontSize = 18.sp, fontWeight = FontWeight.Bold,
                         color = Color(0xFFE57373), modifier = Modifier.padding(top = 4.dp)
@@ -428,11 +469,15 @@ fun RewardCard(
                 elevation = if (canAfford) ButtonDefaults.buttonElevation(defaultElevation = 2.dp) else null
             ) {
                 if (isLoading) {
-                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(color = PrimaryPeach, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                 } else {
                     Text(
-                        text = if (canAfford) "立即兌換" else "點數不足",
-                        fontSize = 18.sp,
+                        text = when {
+                            item.quantity <= 0 -> "已兌換完畢"
+                            canAfford -> "立即兌換"
+                            else -> "點數不足"
+                        },
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -445,8 +490,6 @@ fun RewardCard(
 @Composable
 fun RewardScreenPreview() {
     GraduationProjectTheme {
-        RewardScreen(accountId = 1, currentPoints = 850,onPointsUpdated = {}
-        )
+        RewardScreen(accountId = 1, currentPoints = 850, onPointsUpdated = {})
     }
 }
-

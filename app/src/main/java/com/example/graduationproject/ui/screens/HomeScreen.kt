@@ -30,8 +30,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.graduationproject.DataClass.GetFitnessRadarRequest
 import com.example.graduationproject.DataClass.GetPointsRequest
 import com.example.graduationproject.api.ApiClient
+import com.example.graduationproject.fitness.FitnessCategory
 import com.example.graduationproject.ui.components.ScaleButton
 import com.example.graduationproject.ui.theme.GraduationProjectTheme
 import com.example.graduationproject.ui.theme.LocalFontScale
@@ -131,7 +133,7 @@ fun ElderlyDashboard(
     var currentPoints by remember { mutableIntStateOf(0) }
     var streakDays by remember { mutableIntStateOf(0) }
     var currentWeek by remember { mutableIntStateOf(1) }
-    var sppbScore by remember { mutableStateOf<Int?>(null) } 
+    var sppbScore by remember { mutableStateOf<Int?>(null) }
     var selectedItem by remember { mutableIntStateOf(0) }
     var localIsSurveyComplete by remember(isSurveyComplete) { mutableStateOf(isSurveyComplete) }
 
@@ -173,7 +175,7 @@ fun ElderlyDashboard(
                     id = 2,
                     title = "點數獎勵提醒",
                     message = "完成訓練可獲得點數，累積後可兌換獎勵。",
-                    createdAtMillis = now - (60 * 60 * 1000), 
+                    createdAtMillis = now - (60 * 60 * 1000),
                     type = NotificationType.POINTS,
                     isRead = false
                 )
@@ -328,6 +330,7 @@ fun ElderlyDashboard(
             Box(modifier = Modifier.padding(innerPadding)) {
                 when (selectedItem) {
                     0 -> DashboardContent(
+                        accountId = accountId,
                         elderName = elderName,
                         elderLevel = elderLevel,
                         currentPoints = currentPoints,
@@ -366,7 +369,7 @@ fun NotificationScreen(
         containerColor = BeigeBg,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { 
+                title = {
                     Text(
                         text = "通知中心",
                         fontSize = 24.scaledSp(),
@@ -545,13 +548,14 @@ fun NotificationCard(
 
 @Composable
 fun DashboardContent(
+    accountId: Int,
     elderName: String,
     elderLevel: Int,
     currentPoints: Int,
     streakDays: Int,
     currentWeek: Int,
     isSurveyComplete: Boolean,
-    sppbScore: Int?, 
+    sppbScore: Int?,
     onNavigateToSurvey: () -> Unit
 ) {
     var greetingText by remember { mutableStateOf(getGreetingText()) }
@@ -560,6 +564,24 @@ fun DashboardContent(
         while (true) {
             delay(60000)
             greetingText = getGreetingText()
+        }
+    }
+
+    // 五邊形圖：五個訓練指標的平均準確率 (0f~1f)，預設全空，等 API 回來後填入
+    var radarProgress by remember { mutableStateOf<Map<FitnessCategory, Float>>(emptyMap()) }
+
+    LaunchedEffect(accountId) {
+        if (accountId <= 0) return@LaunchedEffect
+        try {
+            val response = ApiClient.apiService.getFitnessRadar(GetFitnessRadarRequest(accountId))
+            if (response.isSuccessful && response.body()?.success == true) {
+                val raw = response.body()?.radar ?: emptyMap()
+                radarProgress = FitnessCategory.entries.associateWith { category ->
+                    (raw[category.apiKey] ?: 0f) / 100f
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -649,7 +671,7 @@ fun DashboardContent(
         }
 
         item {
-            DigitalTwinElevatedCard()
+            DigitalTwinElevatedCard(progress = radarProgress)
         }
     }
 }
@@ -682,9 +704,13 @@ fun StatsFilledCardsRow(streakDays: Int, currentPoints: Int) {
 }
 
 @Composable
-fun HealthRadarChart(modifier: Modifier = Modifier) {
-    val labels = listOf("力量", "平衡", "靈活", "耐力", "速度")
-    val data = listOf(0.8f, 0.7f, 0.9f, 0.6f, 0.75f)
+fun HealthRadarChart(
+    modifier: Modifier = Modifier,
+    progress: Map<FitnessCategory, Float> = emptyMap()
+) {
+    val orderedCategories = FitnessCategory.entries
+    val labels = orderedCategories.map { it.label }
+    val data = orderedCategories.map { progress[it] ?: 0f }
     val textMeasurer = rememberTextMeasurer()
     val fontScale = LocalFontScale.current
 
@@ -761,7 +787,7 @@ fun HealthRadarChart(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun DigitalTwinElevatedCard() {
+fun DigitalTwinElevatedCard(progress: Map<FitnessCategory, Float> = emptyMap()) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth().heightIn(min = 280.dp),
         shape = RoundedCornerShape(32.dp),
@@ -772,7 +798,7 @@ fun DigitalTwinElevatedCard() {
             modifier = Modifier.fillMaxSize().padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
-            HealthRadarChart(modifier = Modifier.size(240.dp))
+            HealthRadarChart(modifier = Modifier.size(240.dp), progress = progress)
         }
     }
 }

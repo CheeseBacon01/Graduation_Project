@@ -71,4 +71,5 @@ dependencies {
     implementation("androidx.credentials:credentials-play-services-auth:1.2.2")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     implementation(project(":cameraModule"))
+    implementation("io.coil-kt:coil-compose:2.6.0")
 }

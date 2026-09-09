@@ -188,3 +188,16 @@ data class SaveExerciseRecordRequest(
     val duration_seconds: Int? = null,
     val exp_gained: Int = 0
 )
+
+data class RewardCatalogItem(
+    val id: Int,
+    val name: String,
+    val price: Int,
+    val quantity: Int,
+    val image: String? // 完整圖片網址；沒上傳過圖片時為 null
+)
+
+data class GetRewardsResponse(
+    val success: Boolean,
+    val data: List<RewardCatalogItem>?
+)
