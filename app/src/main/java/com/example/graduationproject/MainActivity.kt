@@ -98,6 +98,8 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                     if (targetFragment != null) {
                         intent.putExtra(CameraActivity.EXTRA_TARGET_FRAGMENT, targetFragment)
                     }
+                    intent.putExtra(CameraActivity.EXTRA_ACCOUNT_ID, globalAccountId)
+                    intent.putExtra(CameraActivity.EXTRA_USER_LEVEL, userViewModel.userLevel)
                     context.startActivity(intent)
                 }
             )

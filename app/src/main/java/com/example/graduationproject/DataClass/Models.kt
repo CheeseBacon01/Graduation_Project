@@ -172,3 +172,32 @@ data class ResetPasswordRequest(
     val email: String,
     @SerializedName("new_password") val newPassword: String
 )
+
+data class GetFitnessRadarRequest(val account_id: Int)
+
+data class FitnessRadarResponse(
+    val success: Boolean,
+    val message: String?,
+    val radar: Map<String, Float>? // key 對應 FitnessCategory.apiKey
+)
+
+data class SaveExerciseRecordRequest(
+    val account_id: Int,
+    val exercise_code: String,
+    val accuracy: Float,       // 對應 Fragment 算出的 finalAccuracy
+    val duration_seconds: Int? = null,
+    val exp_gained: Int = 0
+)
+
+data class RewardCatalogItem(
+    val id: Int,
+    val name: String,
+    val price: Int,
+    val quantity: Int,
+    val image: String? // 完整圖片網址；沒上傳過圖片時為 null
+)
+
+data class GetRewardsResponse(
+    val success: Boolean,
+    val data: List<RewardCatalogItem>?
+)

@@ -15,14 +15,24 @@
  */
 package com.google.mediapipe.examples.poselandmarker
 
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  *  This ViewModel is used to store pose landmarker helper settings
  */
 data class ExerciseResult(
     val exerciseName: String,     // 運動名稱 (例如: "水瓶舉重")
-    val exerciseId: String = "",  // 運動 ID (例如: "B1")
+    val exerciseId: String = "",  // 運動 ID
     val reps: Int = 0,            // 總次數
     val sets: Int = 0,            // 總組數
     val steps: Int = 0,           // 總步數 (步行類運動用)
@@ -35,7 +45,22 @@ enum class ExerciseMode {
     SQUEEZE_BALL,  // 捏球 (使用 Hand + Object)
     IDLE
 }
+
+enum class SaveStatus {
+    IDLE,
+    SAVING,
+    SUCCESS,
+    FAILED
+}
+
 class MainViewModel : ViewModel() {
+
+    companion object {
+        private const val TAG = "ExerciseData"
+
+        private const val BASE_URL = "http://192.168.0.10/xampp/Graduation_Project/"
+    }
+
     private var _model = PoseLandmarkerHelper.MODEL_POSE_LANDMARKER_FULL
     private var _delegate: Int = PoseLandmarkerHelper.DELEGATE_CPU
     private var _minPoseDetectionConfidence: Float =
@@ -57,13 +82,79 @@ class MainViewModel : ViewModel() {
         get() =
             _minPosePresenceConfidence
 
-    private val _lastResult = androidx.lifecycle.MutableLiveData<ExerciseResult>()
-    val lastResult: androidx.lifecycle.LiveData<ExerciseResult> get() = _lastResult
+    private var accountId: Int = -1
+    private var userLevel: String = ""
+
+    fun setAccountInfo(accountId: Int, userLevel: String) {
+        this.accountId = accountId
+        this.userLevel = userLevel
+    }
+
+    private val _lastResult = MutableLiveData<ExerciseResult>()
+    val lastResult: LiveData<ExerciseResult> get() = _lastResult
+
+    private val _saveStatus = MutableLiveData<SaveStatus>()
+    val saveStatus: LiveData<SaveStatus> get() = _saveStatus
 
     fun postResult(result: ExerciseResult) {
         _lastResult.postValue(result)
-        // 這裡未來可以加入直接呼叫 API 存檔的邏輯
-        android.util.Log.d("ExerciseData", "封包已發送: $result")
+
+        val exerciseCode = resolveExerciseCode(result.exerciseId, userLevel)
+        if (accountId <= 0 || exerciseCode == null) {
+            android.util.Log.w(
+                TAG,
+                "缺少 accountId 或無法解析 exerciseCode（exerciseId=${result.exerciseId}, userLevel=$userLevel），這次訓練成績不會被存檔"
+            )
+            _saveStatus.postValue(SaveStatus.FAILED)
+            return
+        }
+
+        _saveStatus.postValue(SaveStatus.SAVING)
+        viewModelScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                try {
+                    val url = URL(BASE_URL + "api/save_exercise_record.php")
+                    val connection = (url.openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        doOutput = true
+                        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                        connectTimeout = 8000
+                        readTimeout = 8000
+                    }
+
+                    val body = JSONObject().apply {
+                        put("account_id", accountId)
+                        put("exercise_code", exerciseCode)
+                        put("accuracy", result.accuracy)
+                        put("duration_seconds", result.durationSeconds)
+                        put("exp_gained", result.accuracy.toInt())
+                    }
+
+                    OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { writer ->
+                        writer.write(body.toString())
+                        writer.flush()
+                    }
+
+                    val responseCode = connection.responseCode
+                    connection.disconnect()
+                    responseCode == HttpURLConnection.HTTP_OK
+                } catch (e: Exception) {
+                    android.util.Log.e(TAG, "上傳訓練紀錄失敗", e)
+                    false
+                }
+            }
+
+            android.util.Log.d(TAG, "訓練成績存檔${if (success) "成功" else "失敗"}: $result (exercise_code=$exerciseCode)")
+            _saveStatus.postValue(if (success) SaveStatus.SUCCESS else SaveStatus.FAILED)
+        }
+    }
+
+
+    private fun resolveExerciseCode(exerciseId: String, level: String): String? {
+        if (level.isBlank() || exerciseId.isBlank()) return null
+        return exerciseId.split(",")
+            .map { it.trim() }
+            .firstOrNull { it.startsWith("$level-") }
     }
 
     fun setDelegate(delegate: Int) {
