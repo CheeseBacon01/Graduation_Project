@@ -39,8 +39,13 @@ import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.atan2
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
+
 class BottleLiftFragment : Fragment() {
 
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
     companion object {
         private const val TAG = "BottleLift"
         private const val TOTAL_REPS_PER_SET = 12
@@ -83,6 +88,7 @@ class BottleLiftFragment : Fragment() {
     private var totalAccuracyAccumulated = 0f
     private var accuracyTicks = 0
     private var currentTimerStatusText = ""
+    private var isReadyToStart = false
 
     private lateinit var backgroundExecutor: ExecutorService
 
@@ -94,6 +100,11 @@ class BottleLiftFragment : Fragment() {
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -132,6 +143,17 @@ class BottleLiftFragment : Fragment() {
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -253,6 +275,7 @@ class BottleLiftFragment : Fragment() {
             binding.overlay.isTrackingRightBottle = false
 
             binding.overlay.updateTestInfo(currentRep, currentSet, "請將上半身放入畫面", calculateAvgAccuracy(), isTestCompleted, "次數")
+            speakOut("請將上半身放入畫面", throttleMs = 3000L)
             return
         }
 
@@ -298,7 +321,14 @@ class BottleLiftFragment : Fragment() {
         // 4. 雙手水瓶檢查 (確保兩手都有水瓶才能繼續運動)
         if (!isLeftBottleDetected || !isRightBottleDetected) {
             binding.overlay.updateTestInfo(currentRep, currentSet, "請雙手拿好水瓶", calculateAvgAccuracy(), isTestCompleted, "次數")
+            speakOut("請雙手拿好水瓶", throttleMs = 3000L)
+            isReadyToStart = false
             return
+        }
+        if (!isReadyToStart) {
+            isReadyToStart = true
+            // 強制打斷先前的警告語音，並提示開始
+            speakOut("舉起")
         }
 
         // 5. 角度計算
@@ -309,6 +339,7 @@ class BottleLiftFragment : Fragment() {
         if (!isLifting) {
             if (leftAngle < LIFT_ANGLE_THRESHOLD && rightAngle < LIFT_ANGLE_THRESHOLD) {
                 isLifting = true
+                speakOut("放下")
             }
         } else {
             if (leftAngle > DOWN_ANGLE_THRESHOLD && rightAngle > DOWN_ANGLE_THRESHOLD) {
@@ -316,6 +347,8 @@ class BottleLiftFragment : Fragment() {
                 currentRep++
                 if (currentRep >= TOTAL_REPS_PER_SET) {
                     if (currentSet < TOTAL_SETS) startSetRestTimer() else completeTest()
+                }else {
+                    speakOut("舉起")
                 }
             }
         }
@@ -355,6 +388,7 @@ class BottleLiftFragment : Fragment() {
 
     private fun startSetRestTimer() {
         isRestingBetweenSets = true
+        speakOut("第 $currentSet 組完成，請休息一下")
         timer?.cancel()
         timer = object : CountDownTimer(SET_REST_TIME_MS, 1000) {
             override fun onTick(ms: Long) {
@@ -372,6 +406,7 @@ class BottleLiftFragment : Fragment() {
     private fun completeTest() {
         isTestCompleted = true
         val finalAccuracy = calculateAvgAccuracy()
+        speakOut("測試完成")
 
         // --- 封包傳送 ---
         val result = ExerciseResult(
@@ -417,6 +452,10 @@ class BottleLiftFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

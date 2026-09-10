@@ -89,8 +89,14 @@
             android:id="@+id/action_home_to_wring_towel"
             app:destination="@id/wring_towel_fragment" />
         <action
-            android:id="@+id/action_home_to_balance_test"
-            app:destination="@id/balance_test_fragment" />
+            android:id="@+id/action_home_to_side_by_side"
+            app:destination="@id/side_by_side_fragment" />
+        <action
+            android:id="@+id/action_home_to_semi_tandem"
+            app:destination="@id/semi_tandem_fragment" />
+        <action
+            android:id="@+id/action_home_to_tandem"
+            app:destination="@id/tandem_fragment" />
         <action
             android:id="@+id/action_home_to_gait_speed_4m"
             app:destination="@id/gait_speed_4m_fragment" />
@@ -163,9 +169,19 @@
     </fragment>
 
     <fragment
-        android:id="@+id/balance_test_fragment"
-        android:name="com.google.mediapipe.examples.poselandmarker.fragment.BalanceTestFragment"
-        android:label="BalanceTestFragment" />
+        android:id="@+id/side_by_side_fragment"
+        android:name="com.google.mediapipe.examples.poselandmarker.fragment.SideBySideFragment"
+        android:label="SideBySideFragment" />
+
+    <fragment
+        android:id="@+id/semi_tandem_fragment"
+        android:name="com.google.mediapipe.examples.poselandmarker.fragment.SemiTandemFragment"
+        android:label="SemiTandemFragment" />
+
+    <fragment
+        android:id="@+id/tandem_fragment"
+        android:name="com.google.mediapipe.examples.poselandmarker.fragment.TandemFragment"
+        android:label="TandemFragment" />
 
     <fragment
         android:id="@+id/gait_speed_4m_fragment"

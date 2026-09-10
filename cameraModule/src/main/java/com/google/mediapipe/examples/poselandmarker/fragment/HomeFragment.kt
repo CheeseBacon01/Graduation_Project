@@ -91,9 +91,6 @@ class HomeFragment : Fragment() {
         binding.btnWringTowelTest.setOnClickListener {
             findNavController().navigate(R.id.action_home_to_wring_towel)
         }
-        binding.btnBalanceTest.setOnClickListener {
-            findNavController().navigate(R.id.action_home_to_balance_test)
-        }
         binding.btnGaitSpeed4mTest.setOnClickListener {
             findNavController().navigate(R.id.action_home_to_gait_speed_4m)
         }
@@ -120,6 +117,17 @@ class HomeFragment : Fragment() {
         }
         binding.btnBalloonWalking.setOnClickListener {
             findNavController().navigate(R.id.action_home_to_balloon_walking)
+        }
+        binding.btnSideBySideTest.setOnClickListener {
+            findNavController().navigate(R.id.action_home_to_side_by_side)
+        }
+
+        binding.btnSemiTandemTest.setOnClickListener {
+            findNavController().navigate(R.id.action_home_to_semi_tandem)
+        }
+
+        binding.btnTandemTest.setOnClickListener {
+            findNavController().navigate(R.id.action_home_to_tandem)
         }
     }
 

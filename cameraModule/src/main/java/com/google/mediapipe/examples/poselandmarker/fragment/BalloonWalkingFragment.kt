@@ -31,7 +31,7 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
-
+import android.speech.tts.TextToSpeech
 import com.google.mediapipe.examples.objectdetection.ObjectDetectorHelper
 import android.graphics.Bitmap
 import android.graphics.Matrix
@@ -44,6 +44,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
 class BalloonWalkingFragment : Fragment() {
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
 
     // 定義狀態
     enum class State { INPUT_HEIGHT, WAITING_FOR_DISTANCE, COUNTDOWN, WALKING, RESTING_SET, COMPLETED }
@@ -69,6 +71,7 @@ class BalloonWalkingFragment : Fragment() {
                             startCountdown()
                         } else {
                             binding.tvCenterStatus.text = "請繼續退後...\n(目前: %.1fm)".format(dist)
+                            speakOut("請繼續退後", 5000L)
                         }
                     }
                     State.WALKING -> processLogic(results)
@@ -153,6 +156,11 @@ class BalloonWalkingFragment : Fragment() {
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -174,6 +182,16 @@ class BalloonWalkingFragment : Fragment() {
         }
     }
 
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (currentTime - lastSpeakTime > throttleMs) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+        }
+    }
+
     private fun showHeightDialog() {
         val input = EditText(requireContext())
         input.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
@@ -192,6 +210,7 @@ class BalloonWalkingFragment : Fragment() {
         isTrainingStarted = true
         currentState = State.WAITING_FOR_DISTANCE
         binding.tvCenterStatus.text = "請退後至\n大於 5 公尺處"
+        speakOut("請退後至大於五公尺處")
         binding.tvCenterStatus.textSize = 50f
 
         binding.viewFinder.post { setUpCamera() }
@@ -267,9 +286,11 @@ class BalloonWalkingFragment : Fragment() {
             binding.tvCenterStatus.textSize = 100f
             for (i in 3 downTo 1) {
                 binding.tvCenterStatus.text = i.toString()
+                speakOut(i.toString())
                 delay(1000)
             }
             binding.tvCenterStatus.text = "GO!"
+            speakOut("開始")
             delay(1000)
             binding.tvCenterStatus.text = ""
             currentState = State.WALKING
@@ -288,6 +309,7 @@ class BalloonWalkingFragment : Fragment() {
             // 新增：大字顯示提示
             binding.tvCenterStatus.textSize = 60f
             binding.tvCenterStatus.text = "請將全身放入畫面"
+            speakOut("請將全身放入畫面", 2000L)
             return
         }
 
@@ -332,6 +354,7 @@ class BalloonWalkingFragment : Fragment() {
         timer?.cancel()
         // 設定大字尺寸
         binding.tvCenterStatus.textSize = 80f
+        speakOut("休息時間")
         timer = object : CountDownTimer(durationMs, 1000) {
             override fun onTick(ms: Long) {
                 val secondsLeft = ms / 1000
@@ -348,12 +371,14 @@ class BalloonWalkingFragment : Fragment() {
                 currentState = State.WAITING_FOR_DISTANCE
                 binding.tvCenterStatus.textSize = 50f
                 binding.tvCenterStatus.text = "請退後至\n大於 5 公尺處"
+                speakOut("請退後至大於五公尺處")
             }
         }.start()
     }
 
     private fun completeTest() {
         isTestCompleted = true
+        speakOut("測試完成")
         // --- 封包傳送 ---
         val result = ExerciseResult(
             exerciseName = "邊拍氣球邊走路",
@@ -386,6 +411,10 @@ class BalloonWalkingFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()
