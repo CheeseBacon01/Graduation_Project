@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.Locale
 
 sealed class SurveyStep(
     val title: String,
@@ -28,13 +27,40 @@ sealed class SurveyStep(
     object FallRisk4 : SurveyStep("FallRisk 4: 認知狀態", "長輩目前是否具備中度認知退化跡象？", StepType.YES_NO)
 }
 
+internal sealed interface TimedMeasurement {
+    data object NotMeasured : TimedMeasurement
+    data object UnableToPerform : TimedMeasurement
+    data object InvalidMeasurement : TimedMeasurement
+    data class Completed(val seconds: Float) : TimedMeasurement
+}
+
+internal data class SppbMeasurements(
+    val sideBySide: TimedMeasurement = TimedMeasurement.NotMeasured,
+    val semiTandem: TimedMeasurement = TimedMeasurement.NotMeasured,
+    val tandem: TimedMeasurement = TimedMeasurement.NotMeasured,
+    val walk4m: TimedMeasurement = TimedMeasurement.NotMeasured,
+    val chairStand5x: TimedMeasurement = TimedMeasurement.NotMeasured
+)
+
+internal sealed interface SppbCalculationResult {
+    data class Complete(
+        val score: Int,
+        val grade: String,
+        val hasFallRisk: Boolean
+    ) : SppbCalculationResult
+
+    data object Incomplete : SppbCalculationResult
+}
+
 data class SurveyUiState(
     val currentStepIndex: Int = 0,
     val isCompleted: Boolean = false,
     val timerValue: Float = 0f,
     val isTimerRunning: Boolean = false,
-    val finalGrade: String = "",
-    val finalScore: Int = 0,
+    val hasTimerStarted: Boolean = false,
+    val validationMessage: String? = null,
+    val finalGrade: String? = null,
+    val finalScore: Int? = null,
     val hasFallRisk: Boolean = false
 )
 
@@ -49,7 +75,8 @@ class SurveyViewModel : ViewModel() {
         SurveyStep.FallRisk1, SurveyStep.FallRisk2, SurveyStep.FallRisk3, SurveyStep.FallRisk4
     )
 
-    private val inputs = mutableMapOf<Int, Any>()
+    private var measurements = SppbMeasurements()
+    private val fallRiskAnswers = mutableMapOf<Int, Boolean>()
     private var timerJob: Job? = null
 
     val currentStep: SurveyStep
@@ -58,9 +85,30 @@ class SurveyViewModel : ViewModel() {
     val progress: Float
         get() = (_uiState.value.currentStepIndex + 1).toFloat() / steps.size
 
-    fun startTimer() {
-        if (_uiState.value.isTimerRunning) return
-        _uiState.update { it.copy(isTimerRunning = true) }
+    internal fun measurementFor(step: SurveyStep): TimedMeasurement = when (step) {
+        SurveyStep.Sppb1A -> measurements.sideBySide
+        SurveyStep.Sppb1B -> measurements.semiTandem
+        SurveyStep.Sppb1C -> measurements.tandem
+        SurveyStep.Sppb2 -> measurements.walk4m
+        SurveyStep.Sppb3 -> measurements.chairStand5x
+        else -> error("Step is not an SPPB measurement")
+    }
+
+    internal fun hasFallRiskAnswer(step: SurveyStep): Boolean {
+        if (step.type != SurveyStep.StepType.YES_NO) return false
+        val stepIndex = steps.indexOf(step)
+        return stepIndex >= 0 && fallRiskAnswers.containsKey(stepIndex)
+    }
+
+    fun startTimer(expectedStep: SurveyStep) {
+        if (!isCurrentStep(expectedStep, SurveyStep.StepType.TIMER) || _uiState.value.isTimerRunning) return
+        _uiState.update {
+            it.copy(
+                isTimerRunning = true,
+                hasTimerStarted = true,
+                validationMessage = null
+            )
+        }
         timerJob = viewModelScope.launch {
             while (true) {
                 delay(100)
@@ -69,32 +117,102 @@ class SurveyViewModel : ViewModel() {
         }
     }
 
-    fun pauseTimer() {
+    fun pauseTimer(expectedStep: SurveyStep) {
+        if (!isCurrentStep(expectedStep, SurveyStep.StepType.TIMER)) return
+        stopTimer()
+    }
+
+    private fun stopTimer() {
         timerJob?.cancel()
+        timerJob = null
         _uiState.update { it.copy(isTimerRunning = false) }
     }
 
-    fun resetTimer() {
-        pauseTimer()
-        _uiState.update { it.copy(timerValue = 0f) }
+    fun resetTimer(expectedStep: SurveyStep) {
+        if (!isCurrentStep(expectedStep, SurveyStep.StepType.TIMER)) return
+        resetTimerState()
     }
 
-    fun applyTimerToCurrentStep() {
-        submitValue(_uiState.value.timerValue)
+    private fun resetTimerState() {
+        stopTimer()
+        _uiState.update {
+            it.copy(
+                timerValue = 0f,
+                hasTimerStarted = false,
+                validationMessage = null
+            )
+        }
     }
 
-    fun submitValue(value: Any) {
-        val currentIndex = _uiState.value.currentStepIndex
-        inputs[currentIndex] = value
-        resetTimer()
-
-        // VIVIFRAIL 跳題邏輯: 1A 或 1B 未達 10 秒，直接跳到步速測試 (Index 3)
-        val nextIndex = when {
-            (currentStep == SurveyStep.Sppb1A && (value as? Float ?: 0f) < 10f) -> 3
-            (currentStep == SurveyStep.Sppb1B && (value as? Float ?: 0f) < 10f) -> 3
-            else -> currentIndex + 1
+    fun applyTimerToCurrentStep(expectedStep: SurveyStep) {
+        if (!isCurrentStep(expectedStep, SurveyStep.StepType.TIMER)) return
+        if (!_uiState.value.hasTimerStarted) {
+            _uiState.update { it.copy(validationMessage = "請先開始測量") }
+            return
         }
 
+        stopTimer()
+        val seconds = _uiState.value.timerValue
+        val measurement = if (isValidCompletedTime(expectedStep, seconds)) {
+            TimedMeasurement.Completed(seconds)
+        } else {
+            TimedMeasurement.InvalidMeasurement
+        }
+
+        if (measurement == TimedMeasurement.InvalidMeasurement) {
+            measurements = measurements.withMeasurement(expectedStep, measurement)
+            _uiState.update {
+                it.copy(
+                    validationMessage = "測量結果無效，請重新測量"
+                )
+            }
+            return
+        }
+
+        submitMeasurement(expectedStep, measurement)
+    }
+
+    fun markUnableToPerform(expectedStep: SurveyStep) {
+        if (!isCurrentStep(expectedStep, SurveyStep.StepType.TIMER)) return
+        stopTimer()
+        submitMeasurement(expectedStep, TimedMeasurement.UnableToPerform)
+    }
+
+    fun markMeasurementInvalid(expectedStep: SurveyStep) {
+        if (!isCurrentStep(expectedStep, SurveyStep.StepType.TIMER)) return
+        stopTimer()
+        measurements = measurements.withMeasurement(expectedStep, TimedMeasurement.InvalidMeasurement)
+        _uiState.update {
+            it.copy(
+                timerValue = 0f,
+                isTimerRunning = false,
+                hasTimerStarted = false,
+                validationMessage = "本次測量無效，請重新測量"
+            )
+        }
+    }
+
+    fun submitFallRiskAnswer(expectedStep: SurveyStep, value: Boolean) {
+        if (!isCurrentStep(expectedStep, SurveyStep.StepType.YES_NO)) return
+        val currentIndex = _uiState.value.currentStepIndex
+        fallRiskAnswers[currentIndex] = value
+        advanceTo(currentIndex + 1)
+    }
+
+    private fun submitMeasurement(expectedStep: SurveyStep, measurement: TimedMeasurement) {
+        val currentIndex = _uiState.value.currentStepIndex
+        measurements = measurements.withMeasurement(expectedStep, measurement)
+
+        val nextIndex = when {
+            expectedStep == SurveyStep.Sppb1A && !measurement.passesTenSeconds() -> 3
+            expectedStep == SurveyStep.Sppb1B && !measurement.passesTenSeconds() -> 3
+            else -> currentIndex + 1
+        }
+        advanceTo(nextIndex)
+    }
+
+    private fun advanceTo(nextIndex: Int) {
+        resetTimerState()
         if (nextIndex >= steps.size) {
             calculateResult()
         } else {
@@ -102,60 +220,120 @@ class SurveyViewModel : ViewModel() {
         }
     }
 
+    private fun isCurrentStep(expectedStep: SurveyStep, expectedType: SurveyStep.StepType): Boolean =
+        !_uiState.value.isCompleted && expectedStep.type == expectedType && currentStep == expectedStep
+
     private fun calculateResult() {
-        var sppbScore = 0
+        if (!(5..8).all(fallRiskAnswers::containsKey)) {
+            _uiState.update { it.copy(validationMessage = "請完成所有跌倒風險問題") }
+            return
+        }
 
-        // 1. 平衡計分 (1A, 1B, 1C)
-        val t1a = inputs[0] as? Float ?: 0f
-        val t1b = inputs[1] as? Float ?: 0f
-        val t1c = inputs[2] as? Float ?: 0f
+        val hasFallRisk = (5..8).any { fallRiskAnswers[it] == true }
+        when (val result = calculateSppbResult(measurements, hasFallRisk)) {
+            SppbCalculationResult.Incomplete -> {
+                _uiState.update { it.copy(validationMessage = "尚有未完成或無效的測量") }
+            }
+            is SppbCalculationResult.Complete -> {
+                _uiState.update {
+                    it.copy(
+                        isCompleted = true,
+                        finalScore = result.score,
+                        finalGrade = result.grade,
+                        hasFallRisk = result.hasFallRisk,
+                        validationMessage = null
+                    )
+                }
+            }
+        }
+    }
+}
 
-        if (t1a >= 10f) sppbScore += 1
-        if (t1b >= 10f) sppbScore += 1
-        sppbScore += when {
-            t1c >= 10f -> 2
-            t1c >= 3f -> 1
+private fun SppbMeasurements.withMeasurement(
+    step: SurveyStep,
+    measurement: TimedMeasurement
+): SppbMeasurements = when (step) {
+    SurveyStep.Sppb1A -> copy(sideBySide = measurement)
+    SurveyStep.Sppb1B -> copy(semiTandem = measurement)
+    SurveyStep.Sppb1C -> copy(tandem = measurement)
+    SurveyStep.Sppb2 -> copy(walk4m = measurement)
+    SurveyStep.Sppb3 -> copy(chairStand5x = measurement)
+    else -> this
+}
+
+private fun TimedMeasurement.passesTenSeconds(): Boolean =
+    this is TimedMeasurement.Completed && seconds.isFinite() && seconds >= 10f
+
+private fun isValidCompletedTime(step: SurveyStep, seconds: Float): Boolean {
+    if (!seconds.isFinite()) return false
+    return when (step) {
+        SurveyStep.Sppb1A, SurveyStep.Sppb1B, SurveyStep.Sppb1C -> seconds >= 0f
+        SurveyStep.Sppb2, SurveyStep.Sppb3 -> seconds > 0f
+        else -> false
+    }
+}
+
+internal fun calculateSppbResult(
+    measurements: SppbMeasurements,
+    hasFallRisk: Boolean
+): SppbCalculationResult {
+    val balanceScore = calculateBalanceScore(measurements) ?: return SppbCalculationResult.Incomplete
+    val walkScore = calculateWalkScore(measurements.walk4m) ?: return SppbCalculationResult.Incomplete
+    val chairScore = calculateChairStandScore(measurements.chairStand5x) ?: return SppbCalculationResult.Incomplete
+    val totalScore = balanceScore + walkScore + chairScore
+    val grade = when (totalScore) {
+        in 0..3 -> "A"
+        in 4..6 -> if (hasFallRisk) "B+" else "B"
+        in 7..9 -> if (hasFallRisk) "C+" else "C"
+        else -> "D"
+    }
+    return SppbCalculationResult.Complete(totalScore, grade, hasFallRisk)
+}
+
+private fun calculateBalanceScore(measurements: SppbMeasurements): Int? {
+    val sideBySideSeconds = measurements.sideBySide.completedBalanceSecondsOrNull()
+        ?: return if (measurements.sideBySide == TimedMeasurement.UnableToPerform) 0 else null
+    if (sideBySideSeconds < 10f) return 0
+
+    val semiTandemSeconds = measurements.semiTandem.completedBalanceSecondsOrNull()
+        ?: return if (measurements.semiTandem == TimedMeasurement.UnableToPerform) 1 else null
+    if (semiTandemSeconds < 10f) return 1
+
+    val tandemSeconds = measurements.tandem.completedBalanceSecondsOrNull()
+        ?: return if (measurements.tandem == TimedMeasurement.UnableToPerform) 2 else null
+    return 2 + when {
+        tandemSeconds >= 10f -> 2
+        tandemSeconds >= 3f -> 1
+        else -> 0
+    }
+}
+
+private fun TimedMeasurement.completedBalanceSecondsOrNull(): Float? =
+    (this as? TimedMeasurement.Completed)?.seconds?.takeIf { it.isFinite() && it >= 0f }
+
+private fun calculateWalkScore(measurement: TimedMeasurement): Int? = when (measurement) {
+    TimedMeasurement.UnableToPerform -> 0
+    TimedMeasurement.NotMeasured, TimedMeasurement.InvalidMeasurement -> null
+    is TimedMeasurement.Completed -> measurement.seconds.takeIf { it.isFinite() && it > 0f }?.let {
+        when {
+            it < 4.82f -> 4
+            it <= 6.20f -> 3
+            it <= 8.70f -> 2
+            else -> 1
+        }
+    }
+}
+
+private fun calculateChairStandScore(measurement: TimedMeasurement): Int? = when (measurement) {
+    TimedMeasurement.UnableToPerform -> 0
+    TimedMeasurement.NotMeasured, TimedMeasurement.InvalidMeasurement -> null
+    is TimedMeasurement.Completed -> measurement.seconds.takeIf { it.isFinite() && it > 0f }?.let {
+        when {
+            it < 11.19f -> 4
+            it <= 13.69f -> 3
+            it <= 16.69f -> 2
+            it <= 59f -> 1
             else -> 0
-        }
-
-        // 2. 步行速度計分 (Step Index 3)
-        val tWalk = inputs[3] as? Float ?: 0f
-        sppbScore += when {
-            tWalk > 0f && tWalk < 4.82f -> 4
-            tWalk <= 6.20f -> 3
-            tWalk <= 8.70f -> 2
-            tWalk > 8.70f -> 1
-            else -> 0
-        }
-
-        // 3. 起身計分 (Step Index 4)
-        val tStand = inputs[4] as? Float ?: 0f
-        sppbScore += when {
-            tStand > 0f && tStand < 11.19f -> 4
-            tStand <= 13.69f -> 3
-            tStand <= 16.69f -> 2
-            tStand <= 59f -> 1
-            else -> 0
-        }
-
-        // 4. 跌倒風險判定 (Step Index 5-8)
-        val hasFallRisk = (5..8).any { inputs[it] == true }
-
-        // 5. 級別派發邏輯
-        val grade = when (sppbScore) {
-            in 0..3 -> "A"
-            in 4..6 -> if (hasFallRisk) "B+" else "B"
-            in 7..9 -> if (hasFallRisk) "C+" else "C"
-            else -> "D"
-        }
-
-        _uiState.update {
-            it.copy(
-                isCompleted = true,
-                finalScore = sppbScore,
-                finalGrade = grade,
-                hasFallRisk = hasFallRisk
-            )
         }
     }
 }
