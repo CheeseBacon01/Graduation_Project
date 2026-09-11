@@ -1,7 +1,9 @@
 package com.example.graduationproject.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -32,16 +34,20 @@ fun SurveyScreen(
     viewModel: SurveyViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val finalGrade = uiState.finalGrade
+    val finalScore = uiState.finalScore
 
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = BeigeBg
     ) {
-        if (uiState.isCompleted) {
+        if (uiState.isCompleted && finalGrade != null && finalScore != null) {
             ResultContent(
                 uiState = uiState,
+                grade = finalGrade,
+                score = finalScore,
                 onComplete = {
-                    onComplete(uiState.finalGrade, uiState.finalScore, uiState.hasFallRisk)
+                    onComplete(finalGrade, finalScore, uiState.hasFallRisk)
                 }
             )
         } else {
@@ -62,79 +68,95 @@ fun AssessmentContent(
 ) {
     val step = viewModel.currentStep
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // 進度指示
-        LinearProgressIndicator(
-            progress = { viewModel.progress },
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(12.dp)
-                .padding(top = 16.dp),
-            color = PrimaryPeach,
-            trackColor = PrimaryPeach.copy(alpha = 0.2f)
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // 問題卡片
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(32.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = maxHeight)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // 進度指示
+                LinearProgressIndicator(
+                    progress = { viewModel.progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(12.dp)
+                        .padding(top = 16.dp),
+                    color = PrimaryPeach,
+                    trackColor = PrimaryPeach.copy(alpha = 0.2f)
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // 問題卡片
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(32.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = step.title,
+                            fontSize = 20.scaledSp(),
+                            color = PrimaryPeach,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = step.description,
+                            fontSize = 24.scaledSp(),
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextMain,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 34.sp
+                        )
+                    }
+                }
+            }
+
             Column(
-                modifier = Modifier.padding(28.dp),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = step.title,
-                    fontSize = 20.scaledSp(),
-                    color = PrimaryPeach,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = step.description,
-                    fontSize = 24.scaledSp(),
-                    fontWeight = FontWeight.ExtraBold,
-                    color = TextMain,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 34.sp
-                )
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // 題型渲染
+                when (step.type) {
+                    SurveyStep.StepType.TIMER -> {
+                        BuiltInStopwatch(
+                            time = uiState.timerValue,
+                            isRunning = uiState.isTimerRunning,
+                            onStart = { viewModel.startTimer(step) },
+                            onPause = { viewModel.pauseTimer(step) },
+                            onReset = { viewModel.resetTimer(step) },
+                            onSubmit = { viewModel.applyTimerToCurrentStep(step) },
+                            onUnable = { viewModel.markUnableToPerform(step) },
+                            onInvalid = { viewModel.markMeasurementInvalid(step) },
+                            canSubmit = uiState.hasTimerStarted,
+                            validationMessage = uiState.validationMessage
+                        )
+                    }
+                    SurveyStep.StepType.YES_NO -> {
+                        YesNoOptions(
+                            onSelect = { viewModel.submitFallRiskAnswer(step, it) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(40.dp))
+
+                TextButton(onClick = onBack) {
+                    Text("暫時離開並儲存進度", fontSize = 18.scaledSp(), color = TextMain.copy(alpha = 0.4f))
+                }
             }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        // 題型渲染
-        when (step.type) {
-            SurveyStep.StepType.TIMER -> {
-                BuiltInStopwatch(
-                    time = uiState.timerValue,
-                    isRunning = uiState.isTimerRunning,
-                    onStart = viewModel::startTimer,
-                    onPause = viewModel::pauseTimer,
-                    onReset = viewModel::resetTimer,
-                    onSubmit = viewModel::applyTimerToCurrentStep
-                )
-            }
-            SurveyStep.StepType.YES_NO -> {
-                YesNoOptions(
-                    onSelect = { viewModel.submitValue(it) }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(40.dp))
-
-        TextButton(onClick = onBack) {
-            Text("暫時離開並儲存進度", fontSize = 18.scaledSp(), color = TextMain.copy(alpha = 0.4f))
         }
     }
 }
@@ -146,7 +168,11 @@ fun BuiltInStopwatch(
     onStart: () -> Unit,
     onPause: () -> Unit,
     onReset: () -> Unit,
-    onSubmit: () -> Unit
+    onSubmit: () -> Unit,
+    onUnable: () -> Unit,
+    onInvalid: () -> Unit,
+    canSubmit: Boolean,
+    validationMessage: String?
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -184,13 +210,39 @@ fun BuiltInStopwatch(
 
         Button(
             onClick = onSubmit,
+            enabled = canSubmit,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(72.dp),
+                .heightIn(min = 72.dp),
             shape = RoundedCornerShape(20.dp),
             colors = ButtonDefaults.buttonColors(containerColor = PrimaryPeach)
         ) {
             Text("帶入成績並下一題", fontSize = 22.scaledSp(), fontWeight = FontWeight.Bold)
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedButton(
+            onClick = onUnable,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("無法執行", fontSize = 20.scaledSp())
+        }
+
+        TextButton(
+            onClick = onInvalid,
+            enabled = canSubmit
+        ) {
+            Text("本次測量無效，重新測量", fontSize = 18.scaledSp())
+        }
+
+        validationMessage?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 16.scaledSp(),
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
@@ -247,6 +299,8 @@ fun YesNoOptions(
 @Composable
 fun ResultContent(
     uiState: SurveyUiState,
+    grade: String,
+    score: Int,
     onComplete: () -> Unit
 ) {
     Column(
@@ -291,7 +345,7 @@ fun ResultContent(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "${uiState.finalGrade} 級訓練手冊",
+                    text = "$grade 級訓練手冊",
                     fontSize = 36.scaledSp(),
                     fontWeight = FontWeight.Black,
                     color = PrimaryPeach,
@@ -299,7 +353,7 @@ fun ResultContent(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "SPPB 總分：${uiState.finalScore} / 12",
+                    text = "SPPB 總分：$score / 12",
                     fontSize = 18.scaledSp(),
                     color = TextMain.copy(alpha = 0.6f)
                 )
