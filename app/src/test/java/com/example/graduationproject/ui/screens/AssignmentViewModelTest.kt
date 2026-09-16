@@ -1,0 +1,176 @@
+package com.example.graduationproject.ui.screens
+
+import com.example.graduationproject.resolveCameraExerciseRoute
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class AssignmentViewModelTest {
+
+    @Test
+    fun beginTraining_doesNotCompleteExercise() = runBlocking {
+        val viewModel = readyViewModel()
+
+        val attempt = viewModel.beginTraining("A1")
+
+        assertNotNull(attempt)
+        assertFalse(viewModel.loadedState().completedExerciseIds.contains("A1"))
+    }
+
+    @Test
+    fun permissionDenied_doesNotCompleteOrUnlock() = runBlocking {
+        val viewModel = readyViewModel()
+        val attempt = requireNotNull(viewModel.beginTraining("A1"))
+
+        assertFalse(viewModel.applyTrainingResult(attempt.id, "A1", completed = false))
+
+        val state = viewModel.loadedState()
+        assertFalse(state.completedExerciseIds.contains("A1"))
+        assertEquals("A1", state.exercises.first { it.status.name == "CURRENT" }.id)
+    }
+
+    @Test
+    fun returningBeforeRecognitionCompletes_doesNotUnlock() = runBlocking {
+        val viewModel = readyViewModel()
+        val attempt = requireNotNull(viewModel.beginTraining("A1"))
+
+        viewModel.applyTrainingResult(attempt.id, "A1", completed = false)
+
+        assertEquals("A1", viewModel.loadedState().exercises.first { it.status.name == "CURRENT" }.id)
+    }
+
+    @Test
+    fun successfulRecognition_completesCurrentAndUnlocksNext() = runBlocking {
+        val viewModel = readyViewModel()
+        val attempt = requireNotNull(viewModel.beginTraining("A1"))
+
+        assertTrue(viewModel.applyTrainingResult(attempt.id, "A1", completed = true))
+
+        val state = viewModel.uiState.first { "A1" in it.completedExerciseIds }
+        assertEquals("A2", state.exercises.first { it.status.name == "CURRENT" }.id)
+    }
+
+    @Test
+    fun duplicateSuccessResult_isAppliedOnlyOnce() = runBlocking {
+        val viewModel = readyViewModel()
+        val attempt = requireNotNull(viewModel.beginTraining("A1"))
+
+        assertTrue(viewModel.applyTrainingResult(attempt.id, "A1", completed = true))
+        assertFalse(viewModel.applyTrainingResult(attempt.id, "A1", completed = true))
+
+        assertEquals(setOf("A1"), viewModel.uiState.first { "A1" in it.completedExerciseIds }.completedExerciseIds)
+    }
+
+    @Test
+    fun staleResult_cannotCompleteNewAttempt() = runBlocking {
+        val viewModel = readyViewModel()
+        val stale = requireNotNull(viewModel.beginTraining("A1"))
+        viewModel.applyTrainingResult(stale.id, "A1", completed = false)
+        val current = requireNotNull(viewModel.beginTraining("A1"))
+
+        assertFalse(viewModel.applyTrainingResult(stale.id, "A1", completed = true))
+        assertTrue(viewModel.applyTrainingResult(current.id, "A1", completed = true))
+    }
+
+    @Test
+    fun mismatchedExerciseId_cannotCompleteCurrentExercise() = runBlocking {
+        val viewModel = readyViewModel()
+        val attempt = requireNotNull(viewModel.beginTraining("A1"))
+
+        assertFalse(viewModel.applyTrainingResult(attempt.id, "A2", completed = true))
+
+        assertFalse(viewModel.loadedState().completedExerciseIds.contains("A1"))
+    }
+
+    @Test
+    fun rapidRepeatedStart_createsOnlyOneAttempt() = runBlocking {
+        val viewModel = readyViewModel()
+
+        val first = viewModel.beginTraining("A1")
+        val second = viewModel.beginTraining("A1")
+
+        assertNotNull(first)
+        assertNull(second)
+    }
+
+    @Test
+    fun lockedExerciseCannotStart() = runBlocking {
+        val viewModel = readyViewModel()
+
+        assertNull(viewModel.beginTraining("A2"))
+        assertTrue(viewModel.loadedState().completedExerciseIds.isEmpty())
+    }
+
+    @Test
+    fun completingLastExercise_finishesPlanWithoutExtraUnlock() = runBlocking {
+        val viewModel = readyViewModel()
+        for (exerciseId in listOf("A1", "A2", "A3", "A4", "A5", "A6", "A7")) {
+            val attempt = requireNotNull(viewModel.beginTraining(exerciseId))
+            assertTrue(viewModel.applyTrainingResult(attempt.id, exerciseId, completed = true))
+            viewModel.uiState.first { exerciseId in it.completedExerciseIds }
+        }
+
+        val state = viewModel.loadedState()
+        assertEquals(7, state.completedExerciseIds.size)
+        assertTrue(state.exercises.all { it.status.name == "COMPLETED" })
+    }
+
+    @Test
+    fun selectedExercisesResolveDirectlyToTheirOwnCameraScreensAndResultCodes() {
+        val expectedRoutes = mapOf(
+            "A1" to ("walking_fragment" to "A-1"),
+            "A2" to ("squeeze_ball_fragment" to "A-2"),
+            "A3" to ("bottle_lift_fragment" to "A-3"),
+            "A4" to ("weighted_leg_stretch_fragment" to "A-4"),
+            "A5" to ("chair_stand_fragment" to "A-5"),
+            "A6" to ("camera_fragment" to "A-6"),
+            "A7" to ("stretch_fragment" to "A-7"),
+            "B7" to ("walking_b_fragment" to "B-1"),
+            "B1" to ("bottle_lift_fragment" to "B-2"),
+            "B2" to ("squeeze_ball_fragment" to "B-3"),
+            "B3" to ("simulated_sitting_fragment" to "B-4"),
+            "B4" to ("toe_heel_walking_fragment" to "B-5"),
+            "B5" to ("chair_arm_stretch_fragment" to "B-6"),
+            "B6" to ("stretch_fragment" to "B-7"),
+            "C8" to ("walking_c_fragment" to "C-1"),
+            "C1" to ("wring_towel_fragment" to "C-2"),
+            "C2" to ("bottle_lift_fragment" to "C-3"),
+            "C3" to ("chair_stand_fragment" to "C-4"),
+            "C4" to ("obstacle_crossing_fragment" to "C-5"),
+            "C5" to ("figure8_walking_fragment" to "C-6"),
+            "C6" to ("leg_stretch_fragment" to "C-7"),
+            "C7" to ("stretch_fragment" to "C-8"),
+            "D9" to ("walking_d_fragment" to "D-1"),
+            "D1" to ("wring_towel_fragment" to "D-2"),
+            "D2" to ("bottle_lift_fragment" to "D-3"),
+            "D3" to ("chair_stand_fragment" to "D-4"),
+            "D4" to ("stair_climbing_fragment" to "D-5"),
+            "D5" to ("balloon_walking_fragment" to "D-6"),
+            "D6" to ("figure8_walking_fragment" to "D-7"),
+            "D7" to ("stretch_fragment" to "D-8"),
+            "D8" to ("leg_stretch_fragment" to "D-9")
+        )
+
+        expectedRoutes.forEach { (exerciseId, expected) ->
+            val route = resolveCameraExerciseRoute(exerciseId)
+            assertEquals(expected.first, route?.targetFragment)
+            assertEquals(expected.second, route?.resultCode)
+        }
+        assertNull(resolveCameraExerciseRoute("unknown"))
+    }
+
+    private suspend fun readyViewModel(): AssignmentViewModel {
+        return AssignmentViewModel().also {
+            it.updateParams(level = "A", day = 1)
+            it.loadedState()
+        }
+    }
+
+    private suspend fun AssignmentViewModel.loadedState(): AssignmentUiState =
+        uiState.first { it.dailyPlan != null && it.exercises.isNotEmpty() }
+}
