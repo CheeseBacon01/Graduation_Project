@@ -25,6 +25,8 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.Navigation
+import androidx.navigation.navOptions
+import com.google.mediapipe.examples.poselandmarker.MainActivity
 import com.google.mediapipe.examples.poselandmarker.R
 
 private val PERMISSIONS_REQUIRED = arrayOf(Manifest.permission.CAMERA)
@@ -41,13 +43,14 @@ class PermissionsFragment : Fragment() {
                     "Permission request granted",
                     Toast.LENGTH_LONG
                 ).show()
-                navigateToHome()
+                navigateToRequestedTraining()
             } else {
                 Toast.makeText(
                     context,
                     "Permission request denied",
                     Toast.LENGTH_LONG
                 ).show()
+                requireActivity().finish()
             }
         }
 
@@ -58,7 +61,7 @@ class PermissionsFragment : Fragment() {
                 requireContext(),
                 Manifest.permission.CAMERA
             ) -> {
-                navigateToHome()
+                navigateToRequestedTraining()
             }
             else -> {
                 requestPermissionLauncher.launch(
@@ -68,13 +71,21 @@ class PermissionsFragment : Fragment() {
         }
     }
 
-    private fun navigateToHome() {
+    private fun navigateToRequestedTraining() {
         lifecycleScope.launchWhenStarted {
+            val activity = requireActivity()
+            val target = activity.intent.getStringExtra(MainActivity.EXTRA_TARGET_FRAGMENT)
+            val destination = target?.let(MainActivity::resolveTargetDestination)
+                ?: R.id.home_fragment
             Navigation.findNavController(
-                requireActivity(),
+                activity,
                 R.id.fragment_container
             ).navigate(
-                R.id.action_permissions_to_home
+                destination,
+                null,
+                navOptions {
+                    popUpTo(R.id.permissions_fragment) { inclusive = true }
+                }
             )
         }
     }

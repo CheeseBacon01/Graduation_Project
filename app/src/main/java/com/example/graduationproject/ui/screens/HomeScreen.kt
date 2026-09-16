@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.graduationproject.DataClass.GetFitnessRadarRequest
 import com.example.graduationproject.DataClass.GetPointsRequest
 import com.example.graduationproject.api.ApiClient
@@ -125,7 +126,8 @@ fun ElderlyDashboard(
     userLevel: String = "A",
     onNavigateToSettings: () -> Unit = {},
     onNavigateToSurvey: () -> Unit = {},
-    onStartTraining: (String?) -> Unit = {}
+    onStartTraining: (String?) -> Unit = {},
+    assignmentViewModel: AssignmentViewModel = viewModel()
 ) {
     var elderName by remember { mutableStateOf("長輩") }
     var elderLevel by remember { mutableIntStateOf(1) }
@@ -344,7 +346,8 @@ fun ElderlyDashboard(
                         userLevel = elderGrade,
                         isSurveyComplete = localIsSurveyComplete,
                         onNavigateToSurvey = onNavigateToSurvey,
-                        onStartTraining = onStartTraining
+                        onStartTraining = onStartTraining,
+                        viewModel = assignmentViewModel
                     )
                     2 -> CommunityScreen(accountId = accountId)
                     3 -> RewardScreen(accountId = accountId, currentPoints = currentPoints, onPointsUpdated = { currentPoints = it })

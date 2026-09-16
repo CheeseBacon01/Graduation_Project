@@ -20,10 +20,8 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
-import androidx.navigation.fragment.findNavController
 import com.google.mediapipe.examples.poselandmarker.PoseLandmarkerHelper
 import com.google.mediapipe.examples.poselandmarker.MainViewModel
-import com.google.mediapipe.examples.poselandmarker.R
 import com.google.mediapipe.examples.poselandmarker.databinding.FragmentBalloonWalkingBinding
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
@@ -169,7 +167,7 @@ class BalloonWalkingFragment : Fragment() {
         }
 
         binding.btnFinish.setOnClickListener {
-            findNavController().navigate(R.id.home_fragment)
+            requireActivity().finish()
         }
 
         binding.fabSwitchCamera.setOnClickListener {

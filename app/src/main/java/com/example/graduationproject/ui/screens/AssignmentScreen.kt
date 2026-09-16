@@ -132,7 +132,6 @@ fun AssignmentScreen(
                             exercise = exercise,
                             onStartClick = {
                                 onStartTraining(exercise.id)
-                                viewModel.completeExercise(exercise.id)
                             }
                         )
                     }

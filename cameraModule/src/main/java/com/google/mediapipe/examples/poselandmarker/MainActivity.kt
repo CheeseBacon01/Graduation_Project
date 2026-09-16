@@ -16,6 +16,8 @@
 
 package com.google.mediapipe.examples.poselandmarker
 
+import android.app.Activity
+import android.content.Intent
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import androidx.activity.viewModels
@@ -24,6 +26,9 @@ import androidx.navigation.ui.setupWithNavController
 import com.google.mediapipe.examples.poselandmarker.databinding.ActivityMainBinding
 import com.google.mediapipe.examples.poselandmarker.fragment.PermissionsFragment
 
+internal fun resultContainsExpectedCode(resultCodes: String, expectedCode: String?): Boolean =
+    expectedCode != null && resultCodes.split(",").map(String::trim).contains(expectedCode)
+
 class MainActivity : AppCompatActivity() {
 
     companion object {
@@ -31,6 +36,10 @@ class MainActivity : AppCompatActivity() {
 
         const val EXTRA_ACCOUNT_ID = "extra_account_id"
         const val EXTRA_USER_LEVEL = "extra_user_level"
+        const val EXTRA_REQUESTED_EXERCISE_ID = "extra_requested_exercise_id"
+        const val EXTRA_EXPECTED_RESULT_CODE = "extra_expected_result_code"
+        const val EXTRA_TRAINING_ATTEMPT_ID = "extra_training_attempt_id"
+        const val EXTRA_TRAINING_COMPLETED = "extra_training_completed"
 
         fun resolveTargetDestination(targetFragment: String): Int? {
             return when (targetFragment) {
@@ -38,6 +47,9 @@ class MainActivity : AppCompatActivity() {
                 "stretch_fragment" -> R.id.stretch_fragment
                 "chair_stand_fragment" -> R.id.chair_stand_fragment
                 "walking_fragment" -> R.id.walking_fragment
+                "walking_b_fragment" -> R.id.walking_b_fragment
+                "walking_c_fragment" -> R.id.walking_c_fragment
+                "walking_d_fragment" -> R.id.walking_d_fragment
                 "simulated_sitting_fragment" -> R.id.simulated_sitting_fragment
                 "toe_heel_walking_fragment" -> R.id.toe_heel_walking_fragment
                 "chair_arm_stretch_fragment" -> R.id.chair_arm_stretch_fragment
@@ -52,6 +64,7 @@ class MainActivity : AppCompatActivity() {
                 "leg_stretch_fragment" -> R.id.leg_stretch_fragment
                 "weighted_leg_stretch_fragment" -> R.id.weighted_leg_stretch_fragment
                 "stair_climbing_fragment" -> R.id.stair_climbing_fragment
+                "balloon_walking_fragment" -> R.id.balloon_walking_fragment
                 else -> null
             }
         }
@@ -66,6 +79,7 @@ class MainActivity : AppCompatActivity() {
 
         val accountId = intent.getIntExtra(EXTRA_ACCOUNT_ID, -1)
         val userLevel = intent.getStringExtra(EXTRA_USER_LEVEL) ?: ""
+        setResult(Activity.RESULT_CANCELED, createTrainingResultIntent(completed = false))
         viewModel.setAccountInfo(accountId, userLevel)
 
         val navHostFragment =
@@ -87,6 +101,10 @@ class MainActivity : AppCompatActivity() {
             // ignore the reselection
         }
         viewModel.lastResult.observe(this) { result ->
+            val expectedResultCode = intent.getStringExtra(EXTRA_EXPECTED_RESULT_CODE)
+            if (resultContainsExpectedCode(result.exerciseId, expectedResultCode)) {
+                setResult(Activity.RESULT_OK, createTrainingResultIntent(completed = true))
+            }
             android.widget.Toast.makeText(
                 this,
                 "運動完成：${result.exerciseName}\n準確度：${String.format("%.1f", result.accuracy)}%",
@@ -107,5 +125,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onBackPressed() {
         finish()
+    }
+
+    private fun createTrainingResultIntent(completed: Boolean) = Intent().apply {
+        putExtra(EXTRA_REQUESTED_EXERCISE_ID, intent.getStringExtra(EXTRA_REQUESTED_EXERCISE_ID))
+        putExtra(EXTRA_TRAINING_ATTEMPT_ID, intent.getLongExtra(EXTRA_TRAINING_ATTEMPT_ID, -1L))
+        putExtra(EXTRA_TRAINING_COMPLETED, completed)
     }
 }
