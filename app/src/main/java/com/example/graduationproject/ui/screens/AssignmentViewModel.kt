@@ -93,6 +93,15 @@ class AssignmentViewModel(
         activeTrainingAttempt = null
     }
 
+    fun resetForAccountChange() {
+        level = null
+        day = 1
+        completedIds = emptySet()
+        nextTrainingAttemptId = 1L
+        activeTrainingAttempt = null
+        _uiState.value = AssignmentUiState()
+    }
+
     private fun currentExerciseId(): String? {
         val currentLevel = level ?: return null
         return repository.getDailyPlan(currentLevel, day)

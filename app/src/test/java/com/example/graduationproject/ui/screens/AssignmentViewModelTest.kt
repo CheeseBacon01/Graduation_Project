@@ -121,6 +121,24 @@ class AssignmentViewModelTest {
     }
 
     @Test
+    fun resetForAccountChange_clearsPlanCompletionAndActiveAttempt() = runBlocking {
+        val viewModel = readyViewModel()
+        val attempt = requireNotNull(viewModel.beginTraining("A1"))
+        assertTrue(viewModel.applyTrainingResult(attempt.id, "A1", completed = true))
+        assertNotNull(viewModel.beginTraining("A2"))
+
+        viewModel.resetForAccountChange()
+
+        val state = viewModel.uiState.value
+        assertNull(state.dailyPlan)
+        assertTrue(state.exercises.isEmpty())
+        assertTrue(state.completedExerciseIds.isEmpty())
+
+        viewModel.updateParams(level = "A", day = 1)
+        assertNotNull(viewModel.beginTraining("A1"))
+    }
+
+    @Test
     fun selectedExercisesResolveDirectlyToTheirOwnCameraScreensAndResultCodes() {
         val expectedRoutes = mapOf(
             "A1" to ("walking_fragment" to "A-1"),
