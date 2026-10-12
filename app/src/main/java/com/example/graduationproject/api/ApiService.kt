@@ -6,6 +6,8 @@ import com.example.graduationproject.DataClass.CommunityDataResponse
 import com.example.graduationproject.DataClass.ElderDashboardResponse
 import com.example.graduationproject.DataClass.FitnessRadarResponse
 import com.example.graduationproject.DataClass.FriendActionRequest
+import com.example.graduationproject.DataClass.GetExerciseRecordsRequest
+import com.example.graduationproject.DataClass.GetExerciseRecordsResponse
 import com.example.graduationproject.DataClass.GetFitnessRadarRequest
 import com.example.graduationproject.DataClass.GetPointHistoryRequest
 import com.example.graduationproject.DataClass.GetPointHistoryResponse
@@ -86,6 +88,9 @@ interface ApiService {
 
     @POST("api/save_exercise_record.php")
     suspend fun saveExerciseRecord(@Body request: SaveExerciseRecordRequest): Response<CommonResponse>
+
+    @POST("api/get_exercise_records.php")
+    suspend fun getExerciseRecords(@Body request: GetExerciseRecordsRequest): Response<GetExerciseRecordsResponse>
 
     @GET("api/get_all_products.php")
     suspend fun getRewards(): Response<GetRewardsResponse>

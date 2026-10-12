@@ -9,7 +9,7 @@ class UserViewModel : ViewModel() {
     var isSurveyComplete by mutableStateOf(false)
         private set
 
-    var userLevel by mutableStateOf("A") // 預設 A
+    var userLevel by mutableStateOf("") // 尚未取得評估結果時不可假設 A 級
         private set
 
     var surveyProgress by mutableStateOf(0) // 追蹤回答到第幾題
@@ -20,13 +20,17 @@ class UserViewModel : ViewModel() {
     }
 
     fun completeSurvey(grade: String) {
-        userLevel = grade
-        isSurveyComplete = true
+        setGradeFromServer(grade)
+    }
+
+    fun setGradeFromServer(grade: String) {
+        userLevel = grade.trim()
+        isSurveyComplete = userLevel.isNotEmpty()
     }
 
     fun reset() {
         isSurveyComplete = false
-        userLevel = "A"
+        userLevel = ""
         surveyProgress = 0
     }
 }

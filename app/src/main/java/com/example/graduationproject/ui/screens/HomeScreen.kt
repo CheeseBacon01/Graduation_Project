@@ -31,6 +31,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.compose.ui.platform.LocalContext
 import com.example.graduationproject.DataClass.GetFitnessRadarRequest
 import com.example.graduationproject.DataClass.GetPointsRequest
 import com.example.graduationproject.api.ApiClient
@@ -95,6 +99,20 @@ private fun getRelativeTimeText(createdAtMillis: Long): String {
 /**
  * 依據當前小時回傳對應的問候語
  */
+/** 訓練任務固定按今天的週一至週日產生，並使用手機本地日期查詢。 */
+private fun currentTrainingDay(): Int = when (Calendar.getInstance().get(Calendar.DAY_OF_WEEK)) {
+    Calendar.MONDAY -> 1
+    Calendar.TUESDAY -> 2
+    Calendar.WEDNESDAY -> 3
+    Calendar.THURSDAY -> 4
+    Calendar.FRIDAY -> 5
+    Calendar.SATURDAY -> 6
+    else -> 7
+}
+
+private fun currentTrainingDate(): String =
+    java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+
 private fun getGreetingText(): String {
     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     return when (hour) {
@@ -123,7 +141,8 @@ private fun getFitnessStatusText(sppbScore: Int?): String {
 fun ElderlyDashboard(
     accountId: Int,
     isSurveyComplete: Boolean = false,
-    userLevel: String = "A",
+    userLevel: String = "",
+    onGradeLoaded: (String) -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onNavigateToSurvey: () -> Unit = {},
     onStartTraining: (String?) -> Unit = {},
@@ -131,13 +150,27 @@ fun ElderlyDashboard(
 ) {
     var elderName by remember { mutableStateOf("長輩") }
     var elderLevel by remember { mutableIntStateOf(1) }
-    var elderGrade by remember { mutableStateOf("A") }
+    var elderGrade by remember(accountId) { mutableStateOf("") }
     var currentPoints by remember { mutableIntStateOf(0) }
     var streakDays by remember { mutableIntStateOf(0) }
-    var currentWeek by remember { mutableIntStateOf(1) }
+    var currentWeek by remember(accountId) { mutableIntStateOf(1) }
+    var programCompleted by remember(accountId) { mutableStateOf(false) }
     var sppbScore by remember { mutableStateOf<Int?>(null) }
     var selectedItem by remember { mutableIntStateOf(0) }
     var localIsSurveyComplete by remember(isSurveyComplete) { mutableStateOf(isSurveyComplete) }
+
+    // 手機返回前台時同步日期、週次與最新評估結果（避免跨午夜仍用昨天的任務）。
+    val lifecycleOwner = LocalContext.current as? LifecycleOwner
+    var resumeCounter by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) resumeCounter++
+        }
+        lifecycleOwner?.lifecycle?.addObserver(observer)
+        onDispose { lifecycleOwner?.lifecycle?.removeObserver(observer) }
+    }
+    val actualTrainingDay = remember(resumeCounter) { currentTrainingDay() }
+    val actualTrainingDate = remember(resumeCounter) { currentTrainingDate() }
 
     // 通知狀態管理與標記已讀邏輯
     var showNotificationScreen by remember { mutableStateOf(false) }
@@ -185,8 +218,8 @@ fun ElderlyDashboard(
         }
     }
 
-    LaunchedEffect(accountId, selectedItem, isSurveyComplete) {
-        if (accountId <= 0 || selectedItem != 0) return@LaunchedEffect
+    LaunchedEffect(accountId, selectedItem, isSurveyComplete, userLevel, resumeCounter) {
+        if (accountId <= 0) return@LaunchedEffect
 
         try {
             val request = GetPointsRequest(accountId = accountId)
@@ -197,9 +230,11 @@ fun ElderlyDashboard(
                 elderName = data.name
                 elderLevel = data.level
                 elderGrade = data.grade
+                onGradeLoaded(data.grade)
                 currentPoints = data.points
                 streakDays = data.streakDays
                 currentWeek = data.currentWeek
+                programCompleted = data.programCompleted
                 sppbScore = data.sppbScore
                 localIsSurveyComplete = data.grade.isNotEmpty()
             }
@@ -343,7 +378,12 @@ fun ElderlyDashboard(
                         onNavigateToSurvey = onNavigateToSurvey
                     )
                     1 -> AssignmentScreen(
+                        accountId = accountId,
                         userLevel = elderGrade,
+                        currentDay = actualTrainingDay,
+                        currentWeek = currentWeek,
+                        trainingDate = actualTrainingDate,
+                        programCompleted = programCompleted,
                         isSurveyComplete = localIsSurveyComplete,
                         onNavigateToSurvey = onNavigateToSurvey,
                         onStartTraining = onStartTraining,

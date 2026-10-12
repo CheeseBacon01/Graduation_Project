@@ -26,6 +26,7 @@ import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 
 /**
  *  This ViewModel is used to store pose landmarker helper settings
@@ -84,77 +85,107 @@ class MainViewModel : ViewModel() {
 
     private var accountId: Int = -1
     private var userLevel: String = ""
+    private var expectedExerciseCode: String? = null
 
-    fun setAccountInfo(accountId: Int, userLevel: String) {
+    @Volatile private var saving = false
+    val isSaving: Boolean get() = saving
+
+    private var submittedResult: ExerciseResult? = null
+    private var uploadRequestId: String? = null
+    var savedExerciseCode: String? = null
+        private set
+
+    fun setAccountInfo(accountId: Int, userLevel: String, expectedCode: String?) {
         this.accountId = accountId
-        this.userLevel = userLevel
+        this.userLevel = userLevel.trim().uppercase().take(1)
+        this.expectedExerciseCode = expectedCode
     }
 
     private val _lastResult = MutableLiveData<ExerciseResult>()
     val lastResult: LiveData<ExerciseResult> get() = _lastResult
 
-    private val _saveStatus = MutableLiveData<SaveStatus>()
+    private val _saveStatus = MutableLiveData<SaveStatus>(SaveStatus.IDLE)
     val saveStatus: LiveData<SaveStatus> get() = _saveStatus
 
+    @Synchronized
     fun postResult(result: ExerciseResult) {
+        if (submittedResult != null) return
+        submittedResult = result
+        uploadRequestId = UUID.randomUUID().toString()
         _lastResult.postValue(result)
+        retrySave()
+    }
 
-        val exerciseCode = resolveExerciseCode(result.exerciseId, userLevel)
+    fun retrySave() {
+        val result = submittedResult ?: return
+        if (saving || _saveStatus.value == SaveStatus.SUCCESS) return
+        val exerciseCode = resolveExerciseCode(result.exerciseId, userLevel, expectedExerciseCode)
         if (accountId <= 0 || exerciseCode == null) {
-            android.util.Log.w(
-                TAG,
-                "缺少 accountId 或無法解析 exerciseCode（exerciseId=${result.exerciseId}, userLevel=$userLevel），這次訓練成績不會被存檔"
-            )
+            android.util.Log.e(TAG, "無法儲存：帳號/等級/運動代碼不吻合 (accountId=$accountId, level=$userLevel, result=${result.exerciseId}, expected=$expectedExerciseCode)")
             _saveStatus.postValue(SaveStatus.FAILED)
             return
         }
-
+        val requestId = uploadRequestId ?: return
+        saving = true
+        savedExerciseCode = null
         _saveStatus.postValue(SaveStatus.SAVING)
+
         viewModelScope.launch {
             val success = withContext(Dispatchers.IO) {
-                try {
-                    val url = URL(BASE_URL + "api/save_exercise_record.php")
-                    val connection = (url.openConnection() as HttpURLConnection).apply {
-                        requestMethod = "POST"
-                        doOutput = true
-                        setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                        connectTimeout = 8000
-                        readTimeout = 8000
-                    }
-
-                    val body = JSONObject().apply {
-                        put("account_id", accountId)
-                        put("exercise_code", exerciseCode)
-                        put("accuracy", result.accuracy)
-                        put("duration_seconds", result.durationSeconds)
-                        put("exp_gained", result.accuracy.toInt())
-                    }
-
-                    OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { writer ->
-                        writer.write(body.toString())
-                        writer.flush()
-                    }
-
-                    val responseCode = connection.responseCode
-                    connection.disconnect()
-                    responseCode == HttpURLConnection.HTTP_OK
-                } catch (e: Exception) {
-                    android.util.Log.e(TAG, "上傳訓練紀錄失敗", e)
-                    false
-                }
+                uploadExerciseResult(result, exerciseCode, requestId)
             }
-
-            android.util.Log.d(TAG, "訓練成績存檔${if (success) "成功" else "失敗"}: $result (exercise_code=$exerciseCode)")
-            _saveStatus.postValue(if (success) SaveStatus.SUCCESS else SaveStatus.FAILED)
+            saving = false
+            if (success) savedExerciseCode = exerciseCode
+            _saveStatus.value = if (success) SaveStatus.SUCCESS else SaveStatus.FAILED
         }
     }
 
+    private fun uploadExerciseResult(result: ExerciseResult, exerciseCode: String, requestId: String): Boolean {
+        var connection: HttpURLConnection? = null
+        return try {
+            connection = (URL(BASE_URL + "api/save_exercise_record.php").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                connectTimeout = 8000
+                readTimeout = 8000
+            }
+            val json = JSONObject().apply {
+                put("account_id", accountId)
+                put("exercise_code", exerciseCode)
+                put("accuracy", result.accuracy)
+                put("duration_seconds", result.durationSeconds)
+                put("request_id", requestId)
+            }
+            OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { writer ->
+                writer.write(json.toString())
+                writer.flush()
+            }
+            val httpStatus = connection.responseCode
+            val responseText = (if (httpStatus in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+            val responseJson = JSONObject(responseText)
+            val saved = httpStatus in 200..299 && responseJson.optBoolean("success", false)
+                    && responseJson.optString("request_id") == requestId
+            if (!saved) android.util.Log.w(TAG, "API 未確認儲存成功: HTTP $httpStatus, $responseText")
+            saved
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "上傳訓練紀錄失敗", e)
+            false
+        } finally {
+            connection?.disconnect()
+        }
+    }
 
-    private fun resolveExerciseCode(exerciseId: String, level: String): String? {
-        if (level.isBlank() || exerciseId.isBlank()) return null
-        return exerciseId.split(",")
-            .map { it.trim() }
-            .firstOrNull { it.startsWith("$level-") }
+    /** B+、C+ 都必須使用 B、C 的運動代碼；同時檢查畫面實際要求的動作。 */
+    private fun resolveExerciseCode(resultCodes: String, level: String, expected: String?): String? {
+        if (level.isBlank()) return null
+        val validCodes = resultCodes.split(",").map { it.trim() }
+        return if (expected != null) {
+            expected.takeIf { it.startsWith("$level-") && it in validCodes }
+        } else {
+            validCodes.firstOrNull { it.startsWith("$level-") }
+        }
     }
 
     fun setDelegate(delegate: Int) {

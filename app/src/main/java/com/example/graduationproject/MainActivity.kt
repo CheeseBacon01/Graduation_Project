@@ -70,7 +70,7 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                 attemptId = attemptId,
                 exerciseId = exerciseId,
                 completed = result.resultCode == Activity.RESULT_OK &&
-                    data.getBooleanExtra(CameraActivity.EXTRA_TRAINING_COMPLETED, false)
+                        data.getBooleanExtra(CameraActivity.EXTRA_TRAINING_COMPLETED, false)
             )
         } else {
             assignmentViewModel.cancelActiveTraining()
@@ -88,6 +88,8 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                 onNavigateToRegister = { navController.navigate("register") },
                 onNavigateToForgotPassword = { navController.navigate("forgot_password") },
                 onLoginSuccess = { role, accountId ->
+                    userViewModel.reset()
+                    assignmentViewModel.clear()
                     globalAccountId = accountId
                     sharedPreferences.edit().putInt("ACCOUNT_ID", accountId).apply()
                     navController.navigate("home") {
@@ -113,21 +115,28 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                 accountId = globalAccountId,
                 isSurveyComplete = userViewModel.isSurveyComplete,
                 userLevel = userViewModel.userLevel,
+                onGradeLoaded = { grade ->
+                    if (userViewModel.userLevel != grade) userViewModel.setGradeFromServer(grade)
+                },
                 onNavigateToSettings = { navController.navigate("settings") },
                 onNavigateToSurvey = { navController.navigate("survey") },
                 onStartTraining = { exerciseId ->
                     val selectedExerciseId = exerciseId ?: return@ElderlyDashboard
-                    val route = resolveCameraExerciseRoute(selectedExerciseId)
-                        ?: return@ElderlyDashboard
                     val attempt = assignmentViewModel.beginTraining(selectedExerciseId)
                         ?: return@ElderlyDashboard
+                    val route = resolveCameraExerciseRoute(selectedExerciseId, attempt.week)
+                        ?: run {
+                            assignmentViewModel.cancelActiveTraining()
+                            return@ElderlyDashboard
+                        }
                     val intent = Intent(context, CameraActivity::class.java)
                     intent.putExtra(CameraActivity.EXTRA_TARGET_FRAGMENT, route.targetFragment)
                     intent.putExtra(CameraActivity.EXTRA_EXPECTED_RESULT_CODE, route.resultCode)
                     intent.putExtra(CameraActivity.EXTRA_REQUESTED_EXERCISE_ID, attempt.exerciseId)
                     intent.putExtra(CameraActivity.EXTRA_TRAINING_ATTEMPT_ID, attempt.id)
-                    intent.putExtra(CameraActivity.EXTRA_ACCOUNT_ID, globalAccountId)
-                    intent.putExtra(CameraActivity.EXTRA_USER_LEVEL, userViewModel.userLevel)
+                    intent.putExtra(CameraActivity.EXTRA_ACCOUNT_ID, attempt.accountId)
+                    intent.putExtra(CameraActivity.EXTRA_USER_LEVEL, attempt.level)
+                    intent.putExtra(CameraActivity.EXTRA_TRAINING_WEEK, attempt.week)
                     trainingLauncher.launch(intent)
                 },
                 assignmentViewModel = assignmentViewModel
@@ -173,6 +182,8 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
             SettingsScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onLogout = {
+                    userViewModel.reset()
+                    assignmentViewModel.clear()
                     sharedPreferences.edit().remove("ACCOUNT_ID").apply()
                     globalAccountId = -1
                     navController.navigate("login") {
@@ -210,12 +221,12 @@ internal data class CameraExerciseRoute(
     val resultCode: String
 )
 
-internal fun resolveCameraExerciseRoute(exerciseId: String): CameraExerciseRoute? {
+internal fun resolveCameraExerciseRoute(exerciseId: String, week: Int = 1): CameraExerciseRoute? {
     return when (exerciseId) {
         "A1" -> CameraExerciseRoute(CAMERA_FRAGMENT_WALKING, "A-1")
-        "B7" -> CameraExerciseRoute(CAMERA_FRAGMENT_WALKING_B, "B-1")
-        "C8" -> CameraExerciseRoute(CAMERA_FRAGMENT_WALKING_C, "C-1")
-        "D9" -> CameraExerciseRoute(CAMERA_FRAGMENT_WALKING_D, "D-1")
+        "B7" -> CameraExerciseRoute(if (week >= 7) "walking_b_week7_fragment" else CAMERA_FRAGMENT_WALKING_B, "B-1")
+        "C8" -> CameraExerciseRoute(if (week >= 7) "walking_c_week7_fragment" else CAMERA_FRAGMENT_WALKING_C, "C-1")
+        "D9" -> CameraExerciseRoute(if (week >= 7) "walking_d_week7_fragment" else CAMERA_FRAGMENT_WALKING_D, "D-1")
         "A2" -> CameraExerciseRoute(CAMERA_FRAGMENT_SQUEEZE_BALL, "A-2")
         "B2" -> CameraExerciseRoute(CAMERA_FRAGMENT_SQUEEZE_BALL, "B-3")
         "A3" -> CameraExerciseRoute(CAMERA_FRAGMENT_BOTTLE_LIFT, "A-3")

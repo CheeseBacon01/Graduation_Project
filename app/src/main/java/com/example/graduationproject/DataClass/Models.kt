@@ -76,6 +76,8 @@ data class ElderDashboardResponse(
     val points: Int,
     @SerializedName("streak_days") val streakDays: Int,
     @SerializedName("current_week") val currentWeek: Int,
+    @SerializedName("program_completed") val programCompleted: Boolean = false,
+    @SerializedName("training_start_date") val trainingStartDate: String? = null,
     @SerializedName("sppb_score") val sppbScore: Int? = null // 修改處：新增 SPPB 分數欄位
 )
 
@@ -200,4 +202,21 @@ data class RewardCatalogItem(
 data class GetRewardsResponse(
     val success: Boolean,
     val data: List<RewardCatalogItem>?
+)
+
+data class GetExerciseRecordsRequest(
+    @SerializedName("account_id") val accountId: Int,
+    @SerializedName("training_date") val trainingDate: String
+)
+
+data class SavedExerciseRecord(
+    @SerializedName("exercise_code") val exerciseCode: String,
+    val score: Int? = null,
+    @SerializedName("completed_at") val completedAt: String? = null
+)
+
+data class GetExerciseRecordsResponse(
+    val success: Boolean,
+    val message: String? = null,
+    val records: List<SavedExerciseRecord> = emptyList()
 )
