@@ -59,6 +59,12 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
     var globalAccountId by remember { mutableIntStateOf(savedAccountId) }
     val assignmentViewModel: AssignmentViewModel = viewModel()
 
+    LaunchedEffect(globalAccountId) {
+        if (userViewModel.bindAccount(globalAccountId)) {
+            assignmentViewModel.resetForAccountChange()
+        }
+    }
+
     val trainingLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -111,14 +117,18 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
         composable("home") {
             ElderlyDashboard(
                 accountId = globalAccountId,
-                isSurveyComplete = userViewModel.isSurveyComplete,
-                userLevel = userViewModel.userLevel,
+                userViewModel = userViewModel,
                 onNavigateToSettings = { navController.navigate("settings") },
                 onNavigateToSurvey = { navController.navigate("survey") },
                 onStartTraining = { exerciseId ->
                     val selectedExerciseId = exerciseId ?: return@ElderlyDashboard
                     val route = resolveCameraExerciseRoute(selectedExerciseId)
                         ?: return@ElderlyDashboard
+                    val grade = userViewModel.currentGrade
+                    if (grade == null) {
+                        Toast.makeText(context, "尚未取得有效評估級別，無法開始訓練", Toast.LENGTH_SHORT).show()
+                        return@ElderlyDashboard
+                    }
                     val attempt = assignmentViewModel.beginTraining(selectedExerciseId)
                         ?: return@ElderlyDashboard
                     val intent = Intent(context, CameraActivity::class.java)
@@ -127,7 +137,7 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                     intent.putExtra(CameraActivity.EXTRA_REQUESTED_EXERCISE_ID, attempt.exerciseId)
                     intent.putExtra(CameraActivity.EXTRA_TRAINING_ATTEMPT_ID, attempt.id)
                     intent.putExtra(CameraActivity.EXTRA_ACCOUNT_ID, globalAccountId)
-                    intent.putExtra(CameraActivity.EXTRA_USER_LEVEL, userViewModel.userLevel)
+                    intent.putExtra(CameraActivity.EXTRA_USER_LEVEL, grade)
                     trainingLauncher.launch(intent)
                 },
                 assignmentViewModel = assignmentViewModel
@@ -153,7 +163,11 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
 
                             if (response.isSuccessful && response.body()?.success == true) {
                                 Toast.makeText(localContext, "評估結果已成功紀錄", Toast.LENGTH_SHORT).show()
-                                userViewModel.completeSurvey(grade)
+                                userViewModel.updateAssessmentAfterSave(
+                                    accountId = globalAccountId,
+                                    grade = grade,
+                                    sppbScore = score
+                                )
                                 navController.popBackStack()
                             } else {
                                 Toast.makeText(localContext, "儲存失敗：${response.body()?.message}", Toast.LENGTH_LONG).show()
@@ -173,6 +187,8 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
             SettingsScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onLogout = {
+                    userViewModel.reset()
+                    assignmentViewModel.resetForAccountChange()
                     sharedPreferences.edit().remove("ACCOUNT_ID").apply()
                     globalAccountId = -1
                     navController.navigate("login") {

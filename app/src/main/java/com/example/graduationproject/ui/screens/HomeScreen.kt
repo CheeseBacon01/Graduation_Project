@@ -31,8 +31,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.graduationproject.AssessmentState
 import com.example.graduationproject.DataClass.GetFitnessRadarRequest
 import com.example.graduationproject.DataClass.GetPointsRequest
+import com.example.graduationproject.UserViewModel
 import com.example.graduationproject.api.ApiClient
 import com.example.graduationproject.fitness.FitnessCategory
 import com.example.graduationproject.ui.components.ScaleButton
@@ -107,14 +109,17 @@ private fun getGreetingText(): String {
 /**
  * 依據 SPPB 分數判斷體能狀態文字
  */
-private fun getFitnessStatusText(sppbScore: Int?): String {
-    return when (sppbScore) {
-        null -> "尚未評估"
-        in 0..3 -> "照護輔助"
-        in 4..6 -> "循序恢復"
-        in 7..9 -> "穩定提升"
-        in 10..12 -> "良好維持"
-        else -> "尚未評估"
+private fun getFitnessStatusText(assessmentState: AssessmentState): String {
+    return when (assessmentState) {
+        AssessmentState.Loading -> "載入中"
+        AssessmentState.NotAssessed -> "尚未評估"
+        is AssessmentState.Inconsistent, is AssessmentState.Error -> "資料異常"
+        is AssessmentState.Assessed -> when (assessmentState.sppbScore) {
+            in 0..3 -> "照護輔助"
+            in 4..6 -> "循序恢復"
+            in 7..9 -> "穩定提升"
+            else -> "良好維持"
+        }
     }
 }
 
@@ -122,8 +127,7 @@ private fun getFitnessStatusText(sppbScore: Int?): String {
 @Composable
 fun ElderlyDashboard(
     accountId: Int,
-    isSurveyComplete: Boolean = false,
-    userLevel: String = "A",
+    userViewModel: UserViewModel = viewModel(),
     onNavigateToSettings: () -> Unit = {},
     onNavigateToSurvey: () -> Unit = {},
     onStartTraining: (String?) -> Unit = {},
@@ -131,13 +135,13 @@ fun ElderlyDashboard(
 ) {
     var elderName by remember { mutableStateOf("長輩") }
     var elderLevel by remember { mutableIntStateOf(1) }
-    var elderGrade by remember { mutableStateOf("A") }
     var currentPoints by remember { mutableIntStateOf(0) }
     var streakDays by remember { mutableIntStateOf(0) }
     var currentWeek by remember { mutableIntStateOf(1) }
-    var sppbScore by remember { mutableStateOf<Int?>(null) }
     var selectedItem by remember { mutableIntStateOf(0) }
-    var localIsSurveyComplete by remember(isSurveyComplete) { mutableStateOf(isSurveyComplete) }
+    val assessmentState = userViewModel.assessmentState
+    val isSurveyComplete = assessmentState is AssessmentState.Assessed
+    val currentGrade = (assessmentState as? AssessmentState.Assessed)?.grade
 
     // 通知狀態管理與標記已讀邏輯
     var showNotificationScreen by remember { mutableStateOf(false) }
@@ -150,10 +154,11 @@ fun ElderlyDashboard(
     }
 
     // 依據評估狀態初始化通知內容
-    LaunchedEffect(localIsSurveyComplete) {
+    LaunchedEffect(assessmentState) {
         val now = System.currentTimeMillis()
-        notifications = if (!localIsSurveyComplete) {
-            listOf(
+        notifications = when (assessmentState) {
+            AssessmentState.Loading -> emptyList()
+            AssessmentState.NotAssessed -> listOf(
                 HomeNotification(
                     id = 1,
                     title = "體能評估提醒",
@@ -163,8 +168,7 @@ fun ElderlyDashboard(
                     isRead = false
                 )
             )
-        } else {
-            listOf(
+            is AssessmentState.Assessed -> listOf(
                 HomeNotification(
                     id = 1,
                     title = "今日訓練提醒",
@@ -182,10 +186,20 @@ fun ElderlyDashboard(
                     isRead = false
                 )
             )
+            is AssessmentState.Inconsistent, is AssessmentState.Error -> listOf(
+                HomeNotification(
+                    id = 1,
+                    title = "評估資料異常",
+                    message = "目前無法確認您的評估結果，請重新評估或稍後再試。",
+                    createdAtMillis = now,
+                    type = NotificationType.SYSTEM,
+                    isRead = false
+                )
+            )
         }
     }
 
-    LaunchedEffect(accountId, selectedItem, isSurveyComplete) {
+    LaunchedEffect(accountId, selectedItem) {
         if (accountId <= 0 || selectedItem != 0) return@LaunchedEffect
 
         try {
@@ -196,15 +210,20 @@ fun ElderlyDashboard(
                 val data = response.body()!!
                 elderName = data.name
                 elderLevel = data.level
-                elderGrade = data.grade
                 currentPoints = data.points
                 streakDays = data.streakDays
                 currentWeek = data.currentWeek
-                sppbScore = data.sppbScore
-                localIsSurveyComplete = data.grade.isNotEmpty()
+                userViewModel.updateAssessmentFromDashboard(
+                    accountId = accountId,
+                    grade = data.grade,
+                    sppbScore = data.sppbScore
+                )
+            } else {
+                userViewModel.reportAssessmentLoadError(accountId, "無法取得首頁評估資料")
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            userViewModel.reportAssessmentLoadError(accountId, "無法取得首頁評估資料")
         }
     }
 
@@ -305,21 +324,32 @@ fun ElderlyDashboard(
                             modifier = Modifier.padding(bottom = 12.dp)
                         ) {
                             Text(
-                                text = if (localIsSurveyComplete) "💡 預計 15 分鐘，請準備一張穩固的椅子" else "💡 請先完成評估，以便為您安排專屬任務",
+                                text = when (assessmentState) {
+                                    is AssessmentState.Assessed -> "💡 預計 15 分鐘，請準備一張穩固的椅子"
+                                    AssessmentState.Loading -> "💡 正在載入評估資料"
+                                    AssessmentState.NotAssessed -> "💡 請先完成評估，以便為您安排專屬任務"
+                                    is AssessmentState.Inconsistent, is AssessmentState.Error -> "💡 評估資料異常，請重新評估或稍後再試"
+                                },
                                 fontSize = 16.scaledSp(), fontWeight = FontWeight.Bold, color = PrimaryPeach, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                             )
                         }
 
                         ScaleButton(
                             onClick = {
-                                if (localIsSurveyComplete) selectedItem = 1 else onNavigateToSurvey()
+                                if (isSurveyComplete) selectedItem = 1 else onNavigateToSurvey()
                             },
-                            text = if (localIsSurveyComplete) "🏃 開始今日訓練" else "前往填寫體能量表問卷",
+                            text = when (assessmentState) {
+                                is AssessmentState.Assessed -> "🏃 開始今日訓練"
+                                AssessmentState.Loading -> "評估資料載入中"
+                                AssessmentState.NotAssessed -> "前往填寫體能量表問卷"
+                                is AssessmentState.Inconsistent, is AssessmentState.Error -> "重新進行體能評估"
+                            },
                             modifier = Modifier.fillMaxWidth(0.9f).height(80.dp),
-                            fontSize = if (localIsSurveyComplete) 24.sp else 22.sp,
+                            enabled = assessmentState != AssessmentState.Loading,
+                            fontSize = if (isSurveyComplete) 24.sp else 22.sp,
                             shape = RoundedCornerShape(40.dp),
                             containerColor = PrimaryPeach,
-                            icon = if (localIsSurveyComplete) null else Icons.Default.Lock
+                            icon = if (isSurveyComplete) null else Icons.Default.Lock
                         )
                     }
                 }
@@ -338,13 +368,12 @@ fun ElderlyDashboard(
                         currentPoints = currentPoints,
                         streakDays = streakDays,
                         currentWeek = currentWeek,
-                        isSurveyComplete = localIsSurveyComplete,
-                        sppbScore = sppbScore,
+                        assessmentState = assessmentState,
                         onNavigateToSurvey = onNavigateToSurvey
                     )
                     1 -> AssignmentScreen(
-                        userLevel = elderGrade,
-                        isSurveyComplete = localIsSurveyComplete,
+                        userLevel = currentGrade.orEmpty(),
+                        isSurveyComplete = isSurveyComplete,
                         onNavigateToSurvey = onNavigateToSurvey,
                         onStartTraining = onStartTraining,
                         viewModel = assignmentViewModel
@@ -557,8 +586,7 @@ fun DashboardContent(
     currentPoints: Int,
     streakDays: Int,
     currentWeek: Int,
-    isSurveyComplete: Boolean,
-    sppbScore: Int?,
+    assessmentState: AssessmentState,
     onNavigateToSurvey: () -> Unit
 ) {
     var greetingText by remember { mutableStateOf(getGreetingText()) }
@@ -634,7 +662,7 @@ fun DashboardContent(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
-                            text = "體能狀態：${getFitnessStatusText(sppbScore)}",
+                            text = "體能狀態：${getFitnessStatusText(assessmentState)}",
                             fontSize = 18.scaledSp(), fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32), modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
                     }
