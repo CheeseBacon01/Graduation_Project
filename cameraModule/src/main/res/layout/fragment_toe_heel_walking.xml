@@ -141,7 +141,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:gravity="center"
-        android:textColor="#CCFFFFFF"
+        android:textColor="#FF8A65"
         android:textSize="80sp"
         android:textStyle="bold"
         android:shadowColor="#000000"

@@ -18,6 +18,7 @@ package com.google.mediapipe.examples.poselandmarker.fragment
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -45,6 +46,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
 class SimulatedSittingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     companion object {
@@ -56,6 +58,9 @@ class SimulatedSittingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
         private const val SQUAT_THRESHOLD = 0.10f // 判定下蹲的髖膝高度差
         private const val STAND_THRESHOLD = 0.18f // 判定回正的髖膝高度差
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentSimulatedSittingBinding? = null
     private val binding get() = _binding!!
@@ -72,6 +77,7 @@ class SimulatedSittingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
     private var currentRep = 0
     private var currentSet = 1
     private var isSquatting = false
+    private var isReadyToStart = false
     private var isRestingBetweenSets = false
     private var isTestCompleted = false
     private var isTrainingStarted = false
@@ -91,6 +97,11 @@ class SimulatedSittingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -122,6 +133,17 @@ class SimulatedSittingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -183,8 +205,16 @@ class SimulatedSittingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
         val isVisible = requiredIndices.all { landmarks[it].visibility().orElse(0f) > VISIBILITY_THRESHOLD }
         
         if (!isVisible) {
+            speakOut("請將全身放入畫面", 5000L)
+            isReadyToStart = false
             binding.overlay.updateTestInfo(currentRep, currentSet, "請將全身放入畫面", calculateAvgAccuracy(), isTestCompleted, "次數")
             return
+        }
+
+        if (!isReadyToStart) {
+            isReadyToStart = true
+            // 強制打斷先前的警告語音，並提示開始
+            speakOut("坐下", 3000L)
         }
 
         // 判定動作邏輯：髖部 (Hip) 與 膝蓋 (Knee) 的 Y 座標差
@@ -195,9 +225,11 @@ class SimulatedSittingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
         
         if (!isSquatting && hipKneeDist < SQUAT_THRESHOLD) {
             // 偵測到開始蹲下
+            speakOut("站起", 3000L)
             isSquatting = true
         } else if (isSquatting && hipKneeDist > STAND_THRESHOLD) {
             // 偵測到回到站立
+            speakOut("坐下", 3000L)
             isSquatting = false
             currentRep++
             if (currentRep >= TOTAL_REPS_PER_SET) {
@@ -223,6 +255,7 @@ class SimulatedSittingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
 
     private fun startSetRestTimer() {
         isRestingBetweenSets = true
+        speakOut("休息時間")
         timer?.cancel()
         timer = object : CountDownTimer(SET_REST_TIME_MS, 1000) {
             override fun onTick(ms: Long) {
@@ -233,12 +266,14 @@ class SimulatedSittingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
                 isRestingBetweenSets = false
                 currentSet++
                 currentRep = 0
+                speakOut("請開始第${currentSet}組")
             }
         }.start()
     }
 
     private fun completeTest() {
         isTestCompleted = true
+        speakOut("測驗完成")
         val finalAccuracy = calculateAvgAccuracy()
         // --- 封包傳送 ---
         val result = ExerciseResult(
@@ -270,6 +305,10 @@ class SimulatedSittingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

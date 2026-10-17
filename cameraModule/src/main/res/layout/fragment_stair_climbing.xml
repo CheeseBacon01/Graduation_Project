@@ -74,11 +74,14 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:background="#AA000000"
-        android:padding="20dp"
-        android:textColor="@android:color/white"
-        android:textSize="48sp"
+        android:gravity="center"
+        android:textColor="#FF8A65"
+        android:textSize="60sp"
         android:textStyle="bold"
+        android:shadowColor="#000000"
+        android:shadowDx="5"
+        android:shadowDy="5"
+        android:shadowRadius="10"
         android:visibility="gone" />
 
     <androidx.cardview.widget.CardView

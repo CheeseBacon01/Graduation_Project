@@ -18,6 +18,7 @@ package com.google.mediapipe.examples.poselandmarker.fragment
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -45,6 +46,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
 
 class ChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
@@ -56,6 +58,9 @@ class ChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
         private const val SET_REST_TIME_MS = 60000L // 組間休息 60 秒
         private const val VISIBILITY_THRESHOLD = 0.5f
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentChairStandBinding? = null
     private val binding get() = _binding!!
@@ -93,6 +98,11 @@ class ChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -124,6 +134,17 @@ class ChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -198,6 +219,7 @@ class ChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
         
         if (!isVisible) {
             binding.overlay.updateTestInfo(currentRep, currentSet, "請將全身放入畫面", calculateAvgAccuracy(), isTestCompleted, "次數")
+            speakOut("請將全身放入畫面",5000L)
             return
         }
 
@@ -231,8 +253,14 @@ class ChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
             currentTimerStatusText
         } else {
             when {
-                isSitting -> "請起身"
-                isStanding -> "請坐下"
+                isSitting -> {
+                    speakOut("請起身", 3000L)
+                    "請起身"
+                }
+                isStanding -> {
+                    speakOut("請坐下", 3000L)
+                    "請坐下"
+                }
                 else -> "偵測中..."
             }
         }
@@ -259,6 +287,7 @@ class ChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     private fun startSetRestTimer() {
         isRestingBetweenSets = true
+        speakOut("第 $currentSet 組完成，請休息一下")
         val initialSec = SET_REST_TIME_MS / 1000
         currentTimerStatusText = "組間休息 (${initialSec}s)" // 立即設定文字，避免 UI 閃爍或卡住
         timer?.cancel()
@@ -270,6 +299,7 @@ class ChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
                 isRestingBetweenSets = false
                 currentSet++
                 currentRep = 0
+                speakOut("休息結束，請開始第 $currentSet 組")
                 currentTimerStatusText = "請起身" // 休息結束後的初始文字
             }
         }.start()
@@ -277,6 +307,7 @@ class ChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     private fun completeTest() {
         isTestCompleted = true
+        speakOut("測試完成")
         val finalAccuracy = calculateAvgAccuracy()
         // --- 封包傳送 ---
         val result = ExerciseResult(
@@ -306,10 +337,17 @@ class ChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     override fun onPause() {
         super.onPause()
         timer?.cancel()
+        if (::tts.isInitialized) {
+            tts.stop()
+        }
         backgroundExecutor.execute { poseLandmarkerHelper.clearPoseLandmarker() }
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

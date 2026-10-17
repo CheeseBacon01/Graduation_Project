@@ -51,8 +51,12 @@ import kotlinx.coroutines.launch
 import android.graphics.Color
 import android.util.TypedValue
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
 
 class CameraFragment : Fragment() {
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
     enum class WalkingState {
         IDLE,
         WAITING_FOR_DISTANCE,
@@ -102,6 +106,11 @@ class CameraFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         if (!PermissionsFragment.hasPermissions(requireContext())) {
             Navigation.findNavController(requireActivity(), R.id.fragment_container)
                 .navigate(R.id.action_camera_to_permissions)
@@ -117,6 +126,17 @@ class CameraFragment : Fragment() {
             if(this::objectDetectorHelper.isInitialized && objectDetectorHelper.isClosed()) {
                 objectDetectorHelper.setupObjectDetector()
             }
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -140,6 +160,10 @@ class CameraFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _fragmentCameraBinding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()
@@ -221,6 +245,7 @@ class CameraFragment : Fragment() {
                 fragmentCameraBinding.viewFinder.post { setUpCamera() }
                 walkingState = WalkingState.WAITING_FOR_DISTANCE
                 fragmentCameraBinding.tvCenterStatus.text = "請退後至\n大於 6 公尺處"
+                speakOut("請退後至大於六公尺處", 5000L)
                 fragmentCameraBinding.tvCenterStatus.textSize = 50f
             }
             .show()
@@ -230,12 +255,16 @@ class CameraFragment : Fragment() {
         lifecycleScope.launch(Dispatchers.Main) {
             fragmentCameraBinding.tvCenterStatus.textSize = 100f
             fragmentCameraBinding.tvCenterStatus.text = "3"
+            speakOut("三")
             delay(1000)
             fragmentCameraBinding.tvCenterStatus.text = "2"
+            speakOut("二")
             delay(1000)
             fragmentCameraBinding.tvCenterStatus.text = "1"
+            speakOut("一")
             delay(1000)
             fragmentCameraBinding.tvCenterStatus.text = "GO!"
+            speakOut("開始")
 
             delay(800)
             fragmentCameraBinding.tvCenterStatus.text = ""
@@ -330,7 +359,7 @@ class CameraFragment : Fragment() {
 
                     when (walkingState) {
                         WalkingState.WAITING_FOR_DISTANCE -> {
-                            // 如果使用者退後超過 6 公尺，觸發倒數
+                            speakOut("請退後至大於六公尺處", 5000L)
                             if (currentDistance >= 6.0f) {
                                 startCountdownSequence()
                             }
@@ -408,6 +437,7 @@ class CameraFragment : Fragment() {
             fragmentCameraBinding.tvCenterStatus.text = "請確保雙腳入鏡"
             fragmentCameraBinding.tvCenterStatus.setTextColor(Color.RED)
             fragmentCameraBinding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f)
+            speakOut("請確保雙腳入鏡", 5000L)
             return
         }
 
@@ -460,6 +490,7 @@ class CameraFragment : Fragment() {
     private fun startRestPeriod() {
         isResting = true
         walkingState = WalkingState.IDLE
+        speakOut("休息時間")
         restTimer = object : CountDownTimer(REST_TIME_MS, 1000) {
             override fun onTick(millisUntilFinished: Long) {
                 val sec = millisUntilFinished / 1000
@@ -479,6 +510,7 @@ class CameraFragment : Fragment() {
                 fragmentCameraBinding.tvCenterStatus.text = "請退後至\n大於 6 公尺處"
                 fragmentCameraBinding.tvCenterStatus.setTextColor(Color.WHITE)
                 fragmentCameraBinding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 50f)
+                speakOut("請退後至大於六公尺處", 5000L)
             }
         }.start()
     }
@@ -486,6 +518,8 @@ class CameraFragment : Fragment() {
     private fun completeTest() {
         isTestCompleted = true
         val finalAccuracy = calculateAccuracy()
+        speakOut("測試完成")
+        fragmentCameraBinding.tvCenterStatus.text = ""
         // --- 封包傳送 ---
         val result = ExerciseResult(
             exerciseName = "直線走路",

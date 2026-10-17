@@ -16,6 +16,21 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <TextView
+        android:id="@+id/tvCenterStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center"
+        android:padding="24dp"
+        android:shadowColor="#000000"
+        android:shadowDx="5"
+        android:shadowDy="5"
+        android:shadowRadius="10"
+        android:textColor="#FF8A65"
+        android:textSize="60sp"
+        android:textStyle="bold" />
+
     <!-- 設定面板 -->
     <androidx.cardview.widget.CardView
         android:id="@+id/setupPanel"

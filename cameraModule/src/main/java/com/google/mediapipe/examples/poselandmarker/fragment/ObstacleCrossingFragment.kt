@@ -18,6 +18,7 @@ package com.google.mediapipe.examples.poselandmarker.fragment
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -45,7 +46,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
-
+import android.speech.tts.TextToSpeech
 class ObstacleCrossingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     companion object {
@@ -54,8 +55,11 @@ class ObstacleCrossingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
         private const val TOTAL_SETS = 8
         private const val SET_REST_TIME_MS = 60000L // 60秒休息
         private const val VISIBILITY_THRESHOLD = 0.5f
-        private const val LIFT_THRESHOLD = 0.08f // 膝蓋抬起的高度閾值
+        private const val LIFT_THRESHOLD = 0.005f // 膝蓋抬起的高度閾值
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentObstacleCrossingBinding? = null
     private val binding get() = _binding!!
@@ -95,6 +99,11 @@ class ObstacleCrossingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -126,6 +135,17 @@ class ObstacleCrossingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -187,13 +207,20 @@ class ObstacleCrossingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
         val isVisible = requiredIndices.all { landmarks[it].visibility().orElse(0f) > VISIBILITY_THRESHOLD }
         
         if (!isVisible) {
+            speakOut("請將全身放入畫面", 5000L)
             binding.overlay.updateTestInfo(currentRep, currentSet, "請將全身放入畫面", calculateAvgAccuracy(), isTestCompleted, "次數", TOTAL_SETS)
             return
         }
 
-        // 2. 跨越動作判定邏輯 (移除 Z 軸判定)
-        val leftLift = landmarks[23].y() - landmarks[25].y()
-        val rightLift = landmarks[24].y() - landmarks[26].y()
+        val isFrontCamera = cameraFacing == CameraSelector.LENS_FACING_FRONT
+
+        val leftHipIdx = if (isFrontCamera) 24 else 23
+        val leftKneeIdx = if (isFrontCamera) 26 else 25
+        val rightHipIdx = if (isFrontCamera) 23 else 24
+        val rightKneeIdx = if (isFrontCamera) 25 else 26
+
+        val leftLift = landmarks[leftHipIdx].y() - landmarks[leftKneeIdx].y()
+        val rightLift = landmarks[rightHipIdx].y() - landmarks[rightKneeIdx].y()
 
         if (!isLifting) {
             if (leftLift > LIFT_THRESHOLD && !isLeftLegCrossed) {
@@ -207,7 +234,7 @@ class ObstacleCrossingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
             val currentLift = if (activeLeg == 0) leftLift else rightLift
             if (currentLift < LIFT_THRESHOLD / 2) {
                 if (activeLeg == 0) isLeftLegCrossed = true else isRightLegCrossed = true
-                
+
                 if (isLeftLegCrossed && isRightLegCrossed) {
                     currentRep++
                     isLeftLegCrossed = false
@@ -232,10 +259,12 @@ class ObstacleCrossingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
                 isLifting -> "正在跨越..."
                 isLeftLegCrossed && !isRightLegCrossed -> "左腳已完成，請跨越右腳"
                 !isLeftLegCrossed && isRightLegCrossed -> "右腳已完成，請跨越左腳"
-                else -> "請跨越障礙物 (雙腳)"
+                else -> "請腳抬高跨越障礙物"
             }
         }
-        
+
+        speakOut(status, 5000L)
+
         binding.overlay.updateTestInfo(currentRep, currentSet, status, calculateAvgAccuracy(), isTestCompleted, "次數", TOTAL_SETS)
     }
 
@@ -243,6 +272,7 @@ class ObstacleCrossingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
 
     private fun startSetRestTimer() {
         isRestingBetweenSets = true
+        speakOut("休息時間")
         timer?.cancel()
         timer = object : CountDownTimer(SET_REST_TIME_MS, 1000) {
             override fun onTick(ms: Long) {
@@ -260,6 +290,7 @@ class ObstacleCrossingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
     }
 
     private fun completeTest() {
+        speakOut("測試完成")
         isTestCompleted = true
         val finalAccuracy = calculateAvgAccuracy()
         // --- 封包傳送 ---
@@ -296,6 +327,10 @@ class ObstacleCrossingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerList
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

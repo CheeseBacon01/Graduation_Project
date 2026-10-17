@@ -25,6 +25,7 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.max
+import android.speech.tts.TextToSpeech
 
 enum class AutoTestState4m {
     INPUT_HEIGHT,
@@ -43,6 +44,11 @@ class GaitSpeed4mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
     private var cameraProvider: ProcessCameraProvider? = null
     private var cameraFacing = CameraSelector.LENS_FACING_BACK
 
+    private lateinit var tts: TextToSpeech
+    private var isTtsReady = false
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
+
     private var testCount = 0
     private var startTime = 0L
     private var bestTime = Float.MAX_VALUE
@@ -60,7 +66,12 @@ class GaitSpeed4mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
         super.onViewCreated(view, savedInstanceState)
         backgroundExecutor = Executors.newSingleThreadExecutor()
         binding.viewFinder.post { setUpCamera() }
-
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.CHINESE
+                isTtsReady = true
+            }
+        }
         backgroundExecutor.execute {
             poseLandmarkerHelper = PoseLandmarkerHelper(
                 context = requireContext(),
@@ -98,6 +109,17 @@ class GaitSpeed4mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
         }
     }
 
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (isTtsReady && (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs))) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
+        }
+    }
+
     private fun showHeightDialog() {
         currentState = AutoTestState4m.INPUT_HEIGHT
         val input = EditText(requireContext())
@@ -115,6 +137,7 @@ class GaitSpeed4mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
 
                 currentState = AutoTestState4m.WAITING_FOR_DISTANCE
                 binding.tvCenterStatus.text = "請退後至\n大於 4 公尺處"
+                speakOut("請退後至大於四公尺處")
                 binding.tvCenterStatus.textSize = 50f
             }
             .show()
@@ -153,7 +176,8 @@ class GaitSpeed4mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
 
                 when (currentState) {
                     AutoTestState4m.WAITING_FOR_DISTANCE -> {
-                        if (currentDistance >= 4.0f) {
+                        speakOut("請繼續退後", 5000L)
+                        if (currentDistance >= 5.0f) {
                             currentState = AutoTestState4m.COUNTDOWN
                             startCountdownSequence()
                         }
@@ -194,12 +218,16 @@ class GaitSpeed4mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
         lifecycleScope.launch(Dispatchers.Main) {
             binding.tvCenterStatus.textSize = 100f
             binding.tvCenterStatus.text = "3"
+            speakOut("三")
             delay(1000)
             binding.tvCenterStatus.text = "2"
+            speakOut("二")
             delay(1000)
             binding.tvCenterStatus.text = "1"
+            speakOut("一")
             delay(1000)
             binding.tvCenterStatus.text = "GO!"
+            speakOut("開始")
 
             val startDist = binding.overlay.currentDistance
             binding.overlay.targetDistance = max(0.2f, startDist - 4.0f)
@@ -228,15 +256,21 @@ class GaitSpeed4mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
             else -> 1
         }
         if (score > bestScore) bestScore = score
-
+        speakOut("成功")
         showResult(duration, score)
     }
 
     private fun showResult(duration: Float, score: Int) {
         binding.dialogLayout.visibility = View.VISIBLE
         binding.tvResultMsg.text = String.format(Locale.US, "本次時間: %.2fs\n最短時間: %.2fs\n目前最高分: %d分", duration, bestTime, bestScore)
-        binding.btnDialogNext.text = if (testCount < 3 && score > 0) "進行第${testCount + 1}次測試" else "結束"
-        if (score == 0) binding.tvResultMsg.text = "獲得 0 分"
+        val isFinished = testCount >= 3 || score == 0
+        binding.btnDialogNext.text = if (!isFinished) "進行第${testCount + 1}次測試" else "結束"
+        if (score == 0) {
+            binding.tvResultMsg.text = "獲得 0 分"
+            speakOut("測試結束")
+        }else if (testCount >= 3){
+            speakOut("測驗完成")
+        }
     }
 
     private fun resetForNextTrial(askHeight: Boolean) {
@@ -257,5 +291,14 @@ class GaitSpeed4mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
     }
 
     override fun onError(error: String, errorCode: Int) { Toast.makeText(requireContext(), error, Toast.LENGTH_SHORT).show() }
-    override fun onDestroyView() { _binding = null; super.onDestroyView(); backgroundExecutor.shutdown() }
+    override fun onDestroyView() {
+        isTtsReady = false
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
+        _binding = null
+        super.onDestroyView()
+        backgroundExecutor.shutdown()
+    }
 }

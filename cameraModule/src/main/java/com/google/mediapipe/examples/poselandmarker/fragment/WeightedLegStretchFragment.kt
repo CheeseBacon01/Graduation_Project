@@ -3,6 +3,7 @@ package com.google.mediapipe.examples.poselandmarker.fragment
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -29,6 +30,7 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
 
 class WeightedLegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
@@ -42,6 +44,9 @@ class WeightedLegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerLi
         private const val EXTENSION_ANGLE_THRESHOLD = 120.0
         private const val BENT_ANGLE_THRESHOLD = 110.0
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentWeightedLegStretchBinding? = null
     private val binding get() = _binding!!
@@ -82,6 +87,11 @@ class WeightedLegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerLi
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -112,6 +122,17 @@ class WeightedLegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerLi
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -200,6 +221,7 @@ class WeightedLegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerLi
         if (!isVisible) {
             val legName = if (targetLeg == 0) "左腿" else "右腿"
             binding.overlay.updateTestInfo(currentRep, currentSet, "請確保$legName 清楚入鏡", calculateAvgAccuracy(), isTestCompleted, "次數", TOTAL_SETS)
+            speakOut("請確保$legName 清楚入鏡", 5000L)
             return
         }
 
@@ -217,7 +239,6 @@ class WeightedLegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerLi
         val rawLeftKneeAngle = calculateAngle3D(physicalLeftHip, physicalLeftKnee, physicalLeftAnkle)
         val rawRightKneeAngle = calculateAngle3D(physicalRightHip, physicalRightKnee, physicalRightAnkle)
 
-        // 後續邏輯完全不用修改，因為源頭的左右腳已經被我們校正了
         smoothedLeftKneeAngle = if (smoothedLeftKneeAngle < 0) rawLeftKneeAngle else (EMA_ALPHA * rawLeftKneeAngle) + ((1 - EMA_ALPHA) * smoothedLeftKneeAngle)
         smoothedRightKneeAngle = if (smoothedRightKneeAngle < 0) rawRightKneeAngle else (EMA_ALPHA * rawRightKneeAngle) + ((1 - EMA_ALPHA) * smoothedRightKneeAngle)
 
@@ -249,12 +270,25 @@ class WeightedLegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerLi
             }
         }
 
-        val status = if (isLegExtended) {
-            "請慢慢放下$legName\n(目前角度: ${currentAngle.toInt()}°)"
-        } else {
-            "請水平抬起$legName\n(目前角度: ${currentAngle.toInt()}°)"
+        if (isRestingBetweenSets || isTestCompleted) {
+            val statusText = if (isRestingBetweenSets) currentTimerStatusText else "測試完成！"
+            binding.overlay.updateTestInfo(currentRep, currentSet, statusText, calculateAvgAccuracy(), isTestCompleted, "次數", TOTAL_SETS)
+            return
         }
-        binding.overlay.updateTestInfo(currentRep, currentSet, status, calculateAvgAccuracy(), isTestCompleted, "次數", TOTAL_SETS)
+
+        // 2. 組合提示文字與語音，換右腿第一下時朗讀「換右腿，請抬起右腿」
+        val (speakText, statusPrompt) = if (isLegExtended) {
+            Pair("放下$legName", "請慢慢放下$legName\n(目前角度: ${currentAngle.toInt()}°)")
+        } else {
+            if (targetLeg == 1 && currentRep == 0) {
+                Pair("換右腿，請抬起右腿", "請換右腿，水平抬起右腿\n(目前角度: ${currentAngle.toInt()}°)")
+            } else {
+                Pair("抬起$legName", "請水平抬起$legName\n(目前角度: ${currentAngle.toInt()}°)")
+            }
+        }
+
+        speakOut(speakText, 3000L)
+        binding.overlay.updateTestInfo(currentRep, currentSet, statusPrompt, calculateAvgAccuracy(), isTestCompleted, "次數", TOTAL_SETS)
     }
 
     // 3D 向量內積角度計算
@@ -285,6 +319,7 @@ class WeightedLegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerLi
     private fun calculateAvgAccuracy() = if (accuracyTicks == 0) 0f else (totalAccuracyAccumulated / accuracyTicks).coerceIn(0f, 100f)
 
     private fun startSetRestTimer() {
+        speakOut("休息時間")
         isRestingBetweenSets = true
         timer?.cancel()
         timer = object : CountDownTimer(SET_REST_TIME_MS, 1000) {
@@ -313,6 +348,7 @@ class WeightedLegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerLi
         viewModel.postResult(result)
 
         binding.overlay.updateTestInfo(currentRep, currentSet, "測試完成！", finalAccuracy, true, "次數", TOTAL_SETS)
+        speakOut("測驗完成")
         binding.resultPanel.visibility = View.VISIBLE
         binding.tvFinalResult.text = String.format(Locale.US, "總平均準確率: %.1f%%", finalAccuracy)
     }
@@ -337,6 +373,10 @@ class WeightedLegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerLi
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

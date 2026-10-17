@@ -64,7 +64,7 @@
         android:shadowDx="5"
         android:shadowDy="5"
         android:shadowRadius="10"
-        android:textColor="#FFFF00"
+        android:textColor="@color/mp_color_primary"
         android:textSize="40sp"
         android:textStyle="bold" />
 

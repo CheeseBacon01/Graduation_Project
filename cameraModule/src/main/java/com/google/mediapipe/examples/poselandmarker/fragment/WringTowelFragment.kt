@@ -39,6 +39,7 @@ import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.sqrt
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
 
 class WringTowelFragment : Fragment() {
 
@@ -62,6 +63,9 @@ class WringTowelFragment : Fragment() {
         HOLDING,        // 已握拳，開始倒數並計算準確率
         WAITING_RELEASE // 倒數完成，等待手部攤開
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentWringTowelBinding? = null
     private val binding get() = _binding!!
@@ -100,6 +104,11 @@ class WringTowelFragment : Fragment() {
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -128,6 +137,17 @@ class WringTowelFragment : Fragment() {
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -184,10 +204,6 @@ class WringTowelFragment : Fragment() {
         return sqrt((lm1.x() - lm2.x()).pow(2) + (lm1.y() - lm2.y()).pow(2))
     }
 
-    /**
-     * 計算擠壓程度：四指指尖到手腕的平均距離 / 手掌大小 (手腕到中指基部)
-     * 比例越小代表指尖越靠近手腕（握得越緊）。
-     */
     private fun calculateSqueezeRatio(landmarks: List<NormalizedLandmark>): Float {
         val fingerTips = listOf(landmarks[8], landmarks[12], landmarks[16], landmarks[20])
         val wrist = landmarks[0]
@@ -227,6 +243,7 @@ class WringTowelFragment : Fragment() {
                 currentState = TwistState.IDLE
             }
             binding.overlay.updateTestInfo(currentRep, currentSet, "請將雙手平舉放入畫面", calculateAvgAccuracy(), isTestCompleted, "次數", TOTAL_SETS, showAccuracy = true)
+            speakOut("請將雙手放入畫面", 3000L)
             return
         }
 
@@ -266,6 +283,7 @@ class WringTowelFragment : Fragment() {
                     status = "保持緊握..."
                 } else {
                     status = "請雙手握拳並扭毛巾"
+                    speakOut("請握拳並扭毛巾", 3000L)
                 }
             }
 
@@ -280,14 +298,17 @@ class WringTowelFragment : Fragment() {
                     // 倒數中
                     if (isReleased) {
                         status = String.format(Locale.US, "請維持雙手緊握！(%.1f s)", remainingSec)
+                        speakOut("請握緊雙手", 3000L)
                     } else {
                         status = String.format(Locale.US, "保持緊握... %.1f s", remainingSec)
+                        speakOut("動作正確")
                     }
                 }
             }
 
             TwistState.WAITING_RELEASE -> {
                 status = "請完全鬆開雙手"
+                speakOut("鬆開手", 2000L)
                 // 只要雙手確實攤開 (isReleased) 就算完成這一次
                 if (isReleased) {
                     currentState = TwistState.IDLE
@@ -316,6 +337,7 @@ class WringTowelFragment : Fragment() {
 
     private fun startRestTimer() {
         isResting = true
+        speakOut("休息時間")
         timer?.cancel()
         timer = object : CountDownTimer(SET_REST_TIME_MS, 1000) {
             override fun onTick(ms: Long) {
@@ -333,6 +355,7 @@ class WringTowelFragment : Fragment() {
 
     private fun completeTest() {
         isTestCompleted = true
+        speakOut("測驗完成")
         val finalAccuracy = calculateAvgAccuracy()
         // --- 封包傳送 ---
         val result = ExerciseResult(
@@ -373,6 +396,10 @@ class WringTowelFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

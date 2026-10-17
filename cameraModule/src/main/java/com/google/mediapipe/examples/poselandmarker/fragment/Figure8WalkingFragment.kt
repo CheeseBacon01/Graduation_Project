@@ -37,6 +37,8 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
+
 
 class Figure8WalkingFragment : Fragment() {
 
@@ -59,6 +61,9 @@ class Figure8WalkingFragment : Fragment() {
         SET_RESTING,     // 組間休息
         COMPLETED        // 測試完成
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentFigure8WalkingBinding? = null
     private val binding get() = _binding!!
@@ -92,7 +97,14 @@ class Figure8WalkingFragment : Fragment() {
     // 增加穩定偵測的變數
     private var lastTimeTwoBottlesSeen = 0L
     private var stableBottleBoxes = listOf<android.graphics.RectF>()
-
+    private var isTtsReady = false
+    private var smoothPersonDist = 0f
+    private var smoothBottleNear = 0f
+    private var smoothBottleFar = 0f
+    private val alpha = 0.2f
+    private fun lowPass(current: Float, last: Float): Float {
+        return if (last == 0f) current else last + alpha * (current - last)
+    }
     private lateinit var backgroundExecutor: ExecutorService
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -103,6 +115,12 @@ class Figure8WalkingFragment : Fragment() {
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+                isTtsReady = true
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -145,6 +163,15 @@ class Figure8WalkingFragment : Fragment() {
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (isTtsReady && (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs))) {
+            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -269,22 +296,24 @@ class Figure8WalkingFragment : Fragment() {
         if (bottlesCount < 2) {
             if (currentState == ExerciseState.WALKING) {
                 updateUI("水瓶消失，請保持水瓶在畫面內")
-                // ... 略
+                speakOut("請將水瓶放在畫面內", 6000L)
             } else if (currentState == ExerciseState.WAITING_BOTTLES) {
                 updateUI("請在地上前後放置兩瓶水")
+                speakOut("請放置兩瓶水", 5000L)
                 return
             }
         } else {
             // 使用穩定後的 effectiveBoxes 進行後續計算
             val sortedBottles = effectiveBoxes.sortedByDescending { it.bottom }
-            val nearBox = sortedBottles[0]
-            val farBox = sortedBottles[1]
+            val bottleH = 0.23f  // 水瓶高度 (約 23 公分)
+            val focalF = 0.74f   // 係數
+            val rawNear = (bottleH * focalF) / (sortedBottles[0].height() / imgHeight)
+            val rawFar = (bottleH * focalF) / (sortedBottles[1].height() / imgHeight)
 
-            val nearHeightNorm = nearBox.height() / imgHeight
-            val farHeightNorm = farBox.height() / imgHeight
-
-            bottleNearDist = (0.30f * 0.8f) / nearHeightNorm
-            bottleFarDist = (0.30f * 0.8f) / farHeightNorm
+            smoothBottleNear = lowPass(rawNear, smoothBottleNear)
+            smoothBottleFar = lowPass(rawFar, smoothBottleFar)
+            bottleNearDist = smoothBottleNear
+            bottleFarDist = smoothBottleFar
             bottleDistanceMeters = bottleFarDist - bottleNearDist
         }
 
@@ -292,6 +321,7 @@ class Figure8WalkingFragment : Fragment() {
         if (landmarks == null) {
             if (currentState == ExerciseState.WALKING) {
                 updateUI("請進入畫面中")
+                speakOut("請進入畫面", 5000L)
                 totalAccuracyAccumulated += 0f
                 accuracyTicks++
             }
@@ -305,10 +335,14 @@ class Figure8WalkingFragment : Fragment() {
         val poseHeightNorm = ((leftAnkle.y() + rightAnkle.y()) / 2f) - nose.y()
         var personDistance = 0f
         if (poseHeightNorm > 0) {
-            // 進一步調低人體身高佔比，解決偵測距離過遠的問題
-            // 鼻子到腳踝約佔身高的 65% (考量步行時微彎與相機俯視角)
-            val userHeightMeters = (binding.overlay.userHeightCm / 100f) * 0.95f
-            personDistance = (userHeightMeters * 0.8f) / poseHeightNorm
+            val userHeightMeters = (binding.overlay.userHeightCm / 100f) * 0.74f
+            val focalF = 0.74f
+            val rawPersonDist = (userHeightMeters * focalF) / poseHeightNorm
+            val correctedDist = (2.07f * rawPersonDist) - 2.67f
+            // 確保距離不會變成負數，並進行平滑處理
+            val finalDist = if (correctedDist > 0) correctedDist else rawPersonDist
+            smoothPersonDist = lowPass(finalDist, smoothPersonDist)
+            personDistance = smoothPersonDist
         }
 
         val visibility = (landmarks[23].visibility().orElse(0f) + landmarks[24].visibility().orElse(0f)) / 2f
@@ -316,6 +350,7 @@ class Figure8WalkingFragment : Fragment() {
         if (visibility < VISIBILITY_THRESHOLD) {
             if (currentState == ExerciseState.WALKING) {
                 updateUI("請確保全身可見")
+                speakOut("請進入畫面", 5000L)
                 totalAccuracyAccumulated += 50f
                 accuracyTicks++
             }
@@ -329,10 +364,12 @@ class Figure8WalkingFragment : Fragment() {
                     // 修改 1：檢查近端水瓶是否距離 1m 以上
                     if (bottleNearDist < 1.5f) {
                         updateUI(String.format(Locale.US, "近端水瓶太近！\n請將水瓶移至 1.5m 外\n(目前: %.2fm)", bottleNearDist))
+                        speakOut("近端水瓶太近", 5000L)
                     }
                     // 檢查兩瓶水間距是否足夠
                     else if (bottleDistanceMeters < 0.7f) {
                         updateUI(String.format(Locale.US, "水瓶前後間距不足\n請拉開\n(目前: %.2fm)", bottleDistanceMeters))
+                        speakOut("水瓶間距不足",5000L)
                     }
                     else {
                         // 條件達成，進入等待使用者就位狀態
@@ -340,6 +377,7 @@ class Figure8WalkingFragment : Fragment() {
                     }
                 } else {
                     updateUI("請在地面前後放置兩瓶水")
+                    speakOut("請放置兩瓶水", 5000L)
                 }
             }
 
@@ -353,8 +391,10 @@ class Figure8WalkingFragment : Fragment() {
                     currentState = ExerciseState.WALKING
                     phase = 0
                     updateUI("就位成功！\n請開始繞過遠端水瓶")
+                    speakOut("請繞過遠端水瓶", 6000L)
                 } else {
                     updateUI(String.format(Locale.US, "請進入兩瓶水的中間\n(目前距離: %.2fm)", personDistance))
+                    speakOut("請到水瓶中間", 5000L)
                 }
             }
 
@@ -369,18 +409,22 @@ class Figure8WalkingFragment : Fragment() {
                 when (phase) {
                     0 -> { // 開始，應在中間，往遠處走，繞過遠瓶
                         updateUI("請繞過遠端的水瓶")
+                        speakOut("請繞過遠端水瓶", 6000L)
                         if (personDistance > bottleFarDist + margin) phase = 1
                     }
                     1 -> { // 在遠處，往回走
                         updateUI("請回到中間\n準備繞近端水瓶")
+                        speakOut("請回中間", 5000L)
                         if (personDistance < midDist) phase = 2
                     }
                     2 -> { // 在中間，往近處走，繞過近瓶
                         updateUI("請繞過近端的水瓶")
+                        speakOut("請繞過近端水瓶", 6000L)
                         if (personDistance < bottleNearDist) phase = 3
                     }
                     3 -> { // 在近處，往回走
                         updateUI("請回到起點\n完成一圈")
+                        speakOut("請回到起點", 5000L)
                         if (personDistance > midDist) {
                             phase = 0 // 重置 Phase
                             finishLap()
@@ -411,8 +455,12 @@ class Figure8WalkingFragment : Fragment() {
         timer = object : CountDownTimer(LAP_REST_TIME_MS, 100) {
             override fun onTick(ms: Long) {
                 updateUI(String.format(Locale.US, "繞完一圈！\n站立休息 (%.1f s)", ms / 1000f))
+                if (ms in 9000L..10000L) {
+                    speakOut("第 $currentLap 圈完成，請休息一下")
+                }
             }
             override fun onFinish() {
+                speakOut("請開始下一圈")
                 currentState = ExerciseState.WALKING
                 phase = 0
             }
@@ -425,10 +473,14 @@ class Figure8WalkingFragment : Fragment() {
         timer = object : CountDownTimer(SET_REST_TIME_MS, 100) {
             override fun onTick(ms: Long) {
                 updateUI(String.format(Locale.US, "組間休息\n(%.1f s)", ms / 1000f))
+                if (ms in 59000L..60000L) {
+                    speakOut("第 $currentSet 組完成，請休息一下")
+                }
             }
             override fun onFinish() {
                 currentSet++
                 currentLap = 0
+                speakOut("休息結束，請開始第 $currentSet 組")
                 currentState = ExerciseState.WALKING
                 phase = 0
             }
@@ -437,6 +489,7 @@ class Figure8WalkingFragment : Fragment() {
 
     private fun completeTest() {
         currentState = ExerciseState.COMPLETED
+        speakOut("測試完成")
         val finalAccuracy = calculateAvgAccuracy()
         // --- 封包傳送 ---
         val result = ExerciseResult(
@@ -488,6 +541,10 @@ class Figure8WalkingFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

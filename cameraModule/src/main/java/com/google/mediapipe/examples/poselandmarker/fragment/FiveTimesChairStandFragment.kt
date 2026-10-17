@@ -1,10 +1,9 @@
 package com.google.mediapipe.examples.poselandmarker.fragment
 
-import android.annotation.SuppressLint
-import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.os.Bundle
+import android.os.CountDownTimer
 import android.os.SystemClock
+import android.speech.tts.TextToSpeech
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -20,7 +19,6 @@ import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import com.google.mediapipe.examples.poselandmarker.PoseLandmarkerHelper
 import com.google.mediapipe.examples.poselandmarker.databinding.FragmentFiveTimesChairStandBinding
-import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult
 import java.util.Locale
@@ -28,6 +26,10 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class FiveTimesChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
+    private lateinit var tts: TextToSpeech
+    private var isTtsReady = false
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentFiveTimesChairStandBinding? = null
     private val binding get() = _binding!!
@@ -40,6 +42,10 @@ class FiveTimesChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerL
     private var isSeated = true
     private var startTime = 0L
     private var isTesting = false
+    private var isPreparing = false
+    private var isCountingDown = false
+    private var prepTimer: CountDownTimer? = null
+    private var currentCountdownSeconds = 3
     private var currentSeconds = 0f
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -49,6 +55,12 @@ class FiveTimesChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerL
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+                isTtsReady = true
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
         binding.viewFinder.post { setUpCamera() }
 
@@ -61,11 +73,10 @@ class FiveTimesChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerL
         }
 
         binding.btnStart.setOnClickListener {
-            if (!isTesting) {
-                isTesting = true
-                startTime = SystemClock.elapsedRealtime()
-                count = 0
+            if (!isTesting && !isPreparing) {
+                isPreparing = true
                 binding.btnStart.visibility = View.GONE
+                speakOut("請坐下準備")
             }
         }
 
@@ -80,6 +91,17 @@ class FiveTimesChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerL
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (isTtsReady && (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs))) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -127,18 +149,49 @@ class FiveTimesChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerL
         activity?.runOnUiThread {
             if (_binding != null) {
                 val results = resultBundle.results.firstOrNull() ?: return@runOnUiThread
-                if (isTesting) {
+                val landmarks = results.landmarks().firstOrNull()
+
+                // 檢查使用者是否處於坐下姿勢
+                val userIsSeated = if (landmarks != null && landmarks.size > 26) {
+                    val hipY = (landmarks[23].y() + landmarks[24].y()) / 2
+                    val kneeY = (landmarks[25].y() + landmarks[26].y()) / 2
+                    hipY > kneeY - 0.02f
+                } else false
+
+                var statusMsg = "準備中"
+
+                if (isPreparing) {
+                    if (userIsSeated) {
+                        if (!isCountingDown) {
+                            isCountingDown = true
+                            startPrepCountdown()
+                        }
+                        statusMsg = "倒數 $currentCountdownSeconds 秒"
+                    } else {
+                        if (isCountingDown) {
+                            cancelPrepCountdown()
+                        }
+                        statusMsg = "請坐下"
+                        speakOut("請坐下", 2000L)
+                    }
+                } else if (isTesting) {
                     detectSquat(results)
                     currentSeconds = (SystemClock.elapsedRealtime() - startTime) / 1000f
+                    statusMsg = "測試中"
                 }
+
                 binding.overlay.setPoseResults(results, resultBundle.inputImageHeight, resultBundle.inputImageWidth, RunningMode.LIVE_STREAM)
-                binding.tvCount.text = "次數: $count / 5"
+                binding.tvCount.text = when {
+                    isPreparing && !isCountingDown -> "請就坐"
+                    isPreparing && isCountingDown -> "倒數: $currentCountdownSeconds 秒"
+                    else -> "次數: $count / 5"
+                }
 
                 // 更新 OverlayView 的左上方資訊
                 binding.overlay.updateTestInfo(
                     count = count,
                     sets = count,
-                    message = if (isTesting) "測試中" else "準備中",
+                    message = statusMsg,
                     accuracy = 0f,
                     label = "起身次數",
                     maxSets = 5,
@@ -150,16 +203,51 @@ class FiveTimesChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerL
         }
     }
 
+    private fun startPrepCountdown() {
+        prepTimer?.cancel()
+        currentCountdownSeconds = 3
+        speakOut("3")
+        prepTimer = object : CountDownTimer(3000L, 200L) {
+            override fun onTick(millisUntilFinished: Long) {
+                val secondsLeft = ((millisUntilFinished + 999) / 1000).toInt()
+                if (secondsLeft != currentCountdownSeconds && secondsLeft in 1..3) {
+                    currentCountdownSeconds = secondsLeft
+                    speakOut("$secondsLeft")
+                }
+            }
+
+            override fun onFinish() {
+                isPreparing = false
+                isCountingDown = false
+                isTesting = true
+                startTime = SystemClock.elapsedRealtime()
+                count = 0
+                isSeated = true
+                speakOut("開始測試")
+            }
+        }.start()
+    }
+
+    private fun cancelPrepCountdown() {
+        prepTimer?.cancel()
+        prepTimer = null
+        isCountingDown = false
+        currentCountdownSeconds = 3
+    }
+
     private fun detectSquat(results: PoseLandmarkerResult) {
         val landmarks = results.landmarks().firstOrNull() ?: return
+        if (landmarks.size <= 26) return
         // 11, 12 肩膀; 23, 24 臀部; 25, 26 膝蓋
         val hipY = (landmarks[23].y() + landmarks[24].y()) / 2
         val kneeY = (landmarks[25].y() + landmarks[26].y()) / 2
 
         if (isSeated && hipY < kneeY - 0.05f) {
             isSeated = false // 站起
+            speakOut("坐下")
         } else if (!isSeated && hipY > kneeY - 0.02f) {
             isSeated = true // 坐下
+            speakOut("起立")
             count++
             if (count >= 5) finishTest()
         }
@@ -167,6 +255,8 @@ class FiveTimesChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerL
 
     private fun finishTest() {
         isTesting = false
+        cancelPrepCountdown()
+        speakOut("測驗完成")
         val duration = (SystemClock.elapsedRealtime() - startTime) / 1000f
         val score = when {
             duration <= 11.19f -> 4
@@ -179,6 +269,19 @@ class FiveTimesChairStandFragment : Fragment(), PoseLandmarkerHelper.LandmarkerL
         binding.tvDialogResult.text = String.format(Locale.US, "完成時間: %.2fs\n獲得 %d 分", duration, score)
     }
 
-    override fun onError(error: String, errorCode: Int) { Toast.makeText(requireContext(), error, Toast.LENGTH_SHORT).show() }
-    override fun onDestroyView() { _binding = null; super.onDestroyView(); backgroundExecutor.shutdown() }
+    override fun onError(error: String, errorCode: Int) {
+        Toast.makeText(requireContext(), error, Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onDestroyView() {
+        cancelPrepCountdown()
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+            isTtsReady = false
+        }
+        _binding = null
+        super.onDestroyView()
+        backgroundExecutor.shutdown()
+    }
 }

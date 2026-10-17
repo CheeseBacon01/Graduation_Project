@@ -3,6 +3,7 @@ package com.google.mediapipe.examples.poselandmarker.fragment
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -31,6 +32,7 @@ import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.atan2
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
 class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     companion object {
@@ -44,6 +46,9 @@ class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
         private const val VISIBILITY_THRESHOLD = 0.5f
         private const val EMA_ALPHA = 0.25 // 角度平滑係數（越小越平滑，避免準確率與姿勢抖動）
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentLegStretchBinding? = null
     private val binding get() = _binding!!
@@ -87,6 +92,11 @@ class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -117,6 +127,17 @@ class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -190,17 +211,29 @@ class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
             }
             // 已修正：將 TOTAL_REPS_PER_SET 替換為 TOTAL_SETS
             binding.overlay.updateTestInfo(currentRep, currentSet, "請將全身放入畫面中", calculateAvgAccuracy(), isTestCompleted, "次數", TOTAL_SETS)
+            speakOut("請將全身放入畫面",5000L)
             return
         } else if (isPaused) {
             isPaused = false
             if (isHolding) startHoldingTimer(millisRemaining) // 恢復先前的倒數
         }
 
-        // 取得關鍵點
-        val leftHip = landmarks[23]; val rightHip = landmarks[24]
-        val leftKnee = landmarks[25]; val rightKnee = landmarks[26]
-        val leftAnkle = landmarks[27]; val rightAnkle = landmarks[28]
-        val leftWrist = landmarks[15]; val rightWrist = landmarks[16]
+        val isFrontCamera = cameraFacing == CameraSelector.LENS_FACING_FRONT
+
+        val leftHipIdx = if (isFrontCamera) 24 else 23
+        val leftKneeIdx = if (isFrontCamera) 26 else 25
+        val leftAnkleIdx = if (isFrontCamera) 28 else 27
+        val leftWristIdx = if (isFrontCamera) 16 else 15
+
+        val rightHipIdx = if (isFrontCamera) 23 else 24
+        val rightKneeIdx = if (isFrontCamera) 25 else 26
+        val rightAnkleIdx = if (isFrontCamera) 27 else 28
+        val rightWristIdx = if (isFrontCamera) 15 else 16
+
+        val leftHip = landmarks[leftHipIdx]; val rightHip = landmarks[rightHipIdx]
+        val leftKnee = landmarks[leftKneeIdx]; val rightKnee = landmarks[rightKneeIdx]
+        val leftAnkle = landmarks[leftAnkleIdx]; val rightAnkle = landmarks[rightAnkleIdx]
+        val leftWrist = landmarks[leftWristIdx]; val rightWrist = landmarks[rightWristIdx]
 
         // 3. 計算角度並加入 EMA 平滑濾波 (解決數值與判定抖動)
         val rawLeftKneeAngle = calculateAngle(leftHip, leftKnee, leftAnkle)
@@ -233,7 +266,7 @@ class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
             startHoldingTimer()
         }
 
-        // 5. 準確率計算：同樣使用平滑後的角度計算，讓準確率跳動趨緩
+        // 5. 準確率計算
         if (isHolding) {
             if (isPostureCorrect) {
                 val kneeScore = if (targetLeg == 0) {
@@ -247,14 +280,22 @@ class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
             accuracyTicks++
         }
 
-        // 6. UI 狀態更新 (顯示剩餘秒數與動作引導)
+        // 6. UI 狀態更新
         val legText = if (targetLeg == 0) "左腿" else "右腿"
         val status = when {
-            isHolding -> if (isPostureCorrect) "維持姿勢中 ($legText) 剩餘 ${millisRemaining/1000} 秒" else "請保持姿勢不要動！(剩餘 ${millisRemaining/1000} 秒)"
-            else -> "伸直$legText 雙手扶另一膝 身體前傾"
+            isHolding -> if (isPostureCorrect) {
+                speakOut("動作正確請維持", 5000L)
+                "維持姿勢中 ($legText) 剩餘 ${millisRemaining/1000} 秒"
+            } else {
+                speakOut("請恢復正確動作", 5000L)
+                "請保持姿勢不要動！(剩餘 ${millisRemaining/1000} 秒)"
+            }
+            else -> {
+                speakOut("伸直$legText，雙手扶另一膝，身體前傾", 10000L)
+                "伸直$legText 雙手扶另一膝 身體前傾"
+            }
         }
 
-        // 已修正：將 TOTAL_REPS_PER_SET 替換為 TOTAL_SETS
         binding.overlay.updateTestInfo(currentRep, currentSet, status, calculateAvgAccuracy(), isTestCompleted, "次數", TOTAL_SETS)
     }
 
@@ -299,6 +340,7 @@ class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     private fun startRelaxingTimer(durationMs: Long = RELAX_TIME_MS) {
         isRelaxing = true
+        speakOut("請放鬆休息")
         currentRep++
         // 切換目標腿
         targetLeg = 1 - targetLeg
@@ -320,6 +362,7 @@ class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     private fun startSetRestTimer(durationMs: Long = SET_REST_TIME_MS) {
         isRestingBetweenSets = true
+        speakOut("第 $currentSet 組完成，請休息一下")
         timer?.cancel()
         timer = object : CountDownTimer(durationMs, 1000) {
             override fun onTick(ms: Long) {
@@ -330,6 +373,7 @@ class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
                 isRestingBetweenSets = false
                 currentSet++
                 currentRep = 0
+                speakOut("休息結束，請開始第 $currentSet 組")
                 targetLeg = 0 // 每組開始從左腿開始
             }
         }.start()
@@ -337,6 +381,7 @@ class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     private fun completeTest() {
         isTestCompleted = true
+        speakOut("測試完成")
         val finalAccuracy = calculateAvgAccuracy()
         // --- 封包傳送 ---
         val result = ExerciseResult(
@@ -372,6 +417,10 @@ class LegStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

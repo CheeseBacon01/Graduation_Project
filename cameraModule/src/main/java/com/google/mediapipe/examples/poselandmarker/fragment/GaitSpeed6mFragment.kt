@@ -25,6 +25,7 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.max
+import android.speech.tts.TextToSpeech
 
 enum class AutoTestState6m {
     INPUT_HEIGHT,
@@ -35,6 +36,10 @@ enum class AutoTestState6m {
 }
 
 class GaitSpeed6mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
+    private lateinit var tts: TextToSpeech
+    private var isTtsReady = false
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentGaitSpeed6mBinding? = null
     private val binding get() = _binding!!
@@ -57,6 +62,12 @@ class GaitSpeed6mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.CHINESE
+                isTtsReady = true
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
         binding.viewFinder.post { setUpCamera() }
 
@@ -94,6 +105,17 @@ class GaitSpeed6mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (isTtsReady && (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs))) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -152,7 +174,8 @@ class GaitSpeed6mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
 
                 when (currentState) {
                     AutoTestState6m.WAITING_FOR_DISTANCE -> {
-                        if (currentDistance >= 6.0f) {
+                        speakOut("請繼續退後", 5000L)
+                        if (currentDistance >= 7.0f) {
                             currentState = AutoTestState6m.COUNTDOWN
                             startCountdownSequence()
                         }
@@ -193,12 +216,16 @@ class GaitSpeed6mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
         lifecycleScope.launch(Dispatchers.Main) {
             binding.tvCenterStatus.textSize = 100f
             binding.tvCenterStatus.text = "3"
+            speakOut("三")
             delay(1000)
             binding.tvCenterStatus.text = "2"
+            speakOut("二")
             delay(1000)
             binding.tvCenterStatus.text = "1"
+            speakOut("一")
             delay(1000)
             binding.tvCenterStatus.text = "GO!"
+            speakOut("開始")
 
             val startDist = binding.overlay.currentDistance
             binding.overlay.targetDistance = max(0.2f, startDist - 6.0f)
@@ -221,6 +248,7 @@ class GaitSpeed6mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
             binding.dialogLayout.visibility = View.VISIBLE
             binding.tvResultMsg.text = "無法執行 (未獲得分數)"
             binding.btnDialogNext.text = "結束"
+            speakOut("測試結束")
             return
         }
 
@@ -231,6 +259,7 @@ class GaitSpeed6mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
         binding.dialogLayout.visibility = View.VISIBLE
         binding.tvResultMsg.text = String.format(Locale.US, "本次時間: %.2fs\n最短時間: %.2fs\n結果: %s", duration, bestTime, resultText)
         binding.btnDialogNext.text = if (testCount < 2) "進行下一次測試" else "結束"
+        speakOut("測試完成")
     }
 
     private fun resetForNextTrial(askHeight: Boolean) {
@@ -250,5 +279,14 @@ class GaitSpeed6mFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener 
     }
 
     override fun onError(error: String, errorCode: Int) { Toast.makeText(requireContext(), error, Toast.LENGTH_SHORT).show() }
-    override fun onDestroyView() { _binding = null; super.onDestroyView(); backgroundExecutor.shutdown() }
+    override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
+        isTtsReady = false
+        super.onDestroyView()
+        _binding = null
+        backgroundExecutor.shutdown()
+    }
 }
