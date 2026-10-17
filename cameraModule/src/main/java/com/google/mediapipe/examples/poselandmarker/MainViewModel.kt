@@ -19,6 +19,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -53,6 +54,50 @@ enum class SaveStatus {
     FAILED
 }
 
+internal fun resolveExpectedExerciseCode(
+    resultCodes: String,
+    level: String,
+    expectedCode: String?
+): String? {
+    val baseLevel = level.trim().uppercase().take(1)
+    if (baseLevel.isBlank() || resultCodes.isBlank()) return null
+    val codes = resultCodes.split(",").map(String::trim)
+    return if (expectedCode != null) {
+        expectedCode.takeIf { it.startsWith("$baseLevel-") && it in codes }
+    } else {
+        codes.firstOrNull { it.startsWith("$baseLevel-") }
+    }
+}
+
+internal class SingleTrainingResultGuard {
+    private var submitted = false
+
+    @Synchronized
+    fun trySubmit(): Boolean {
+        if (submitted) return false
+        submitted = true
+        return true
+    }
+}
+
+internal fun isSuccessfulSaveResponse(responseCode: Int, responseBody: String?): Boolean {
+    if (responseCode !in 200..299 || responseBody.isNullOrBlank()) return false
+
+    return runCatching {
+        val responseJson = JsonParser.parseString(responseBody)
+        if (!responseJson.isJsonObject) return@runCatching false
+        val success = responseJson.asJsonObject.get("success")
+        success?.isJsonPrimitive == true &&
+            success.asJsonPrimitive.isBoolean &&
+            success.asBoolean
+    }.getOrDefault(false)
+}
+
+internal fun resultToPublishAfterSave(
+    result: ExerciseResult,
+    saveSucceeded: Boolean
+): ExerciseResult? = result.takeIf { saveSucceeded }
+
 class MainViewModel : ViewModel() {
 
     companion object {
@@ -84,10 +129,13 @@ class MainViewModel : ViewModel() {
 
     private var accountId: Int = -1
     private var userLevel: String = ""
+    private var expectedExerciseCode: String? = null
+    private val submissionGuard = SingleTrainingResultGuard()
 
-    fun setAccountInfo(accountId: Int, userLevel: String) {
+    fun setAccountInfo(accountId: Int, userLevel: String, expectedCode: String?) {
         this.accountId = accountId
-        this.userLevel = userLevel
+        this.userLevel = userLevel.trim().uppercase().take(1)
+        this.expectedExerciseCode = expectedCode
     }
 
     private val _lastResult = MutableLiveData<ExerciseResult>()
@@ -97,9 +145,11 @@ class MainViewModel : ViewModel() {
     val saveStatus: LiveData<SaveStatus> get() = _saveStatus
 
     fun postResult(result: ExerciseResult) {
-        _lastResult.postValue(result)
-
-        val exerciseCode = resolveExerciseCode(result.exerciseId, userLevel)
+        val exerciseCode = resolveExpectedExerciseCode(
+            result.exerciseId,
+            userLevel,
+            expectedExerciseCode
+        )
         if (accountId <= 0 || exerciseCode == null) {
             android.util.Log.w(
                 TAG,
@@ -108,13 +158,15 @@ class MainViewModel : ViewModel() {
             _saveStatus.postValue(SaveStatus.FAILED)
             return
         }
+        if (!submissionGuard.trySubmit()) return
 
         _saveStatus.postValue(SaveStatus.SAVING)
         viewModelScope.launch {
             val success = withContext(Dispatchers.IO) {
+                var connection: HttpURLConnection? = null
                 try {
                     val url = URL(BASE_URL + "api/save_exercise_record.php")
-                    val connection = (url.openConnection() as HttpURLConnection).apply {
+                    connection = (url.openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"
                         doOutput = true
                         setRequestProperty("Content-Type", "application/json; charset=utf-8")
@@ -136,26 +188,27 @@ class MainViewModel : ViewModel() {
                     }
 
                     val responseCode = connection.responseCode
-                    connection.disconnect()
-                    responseCode == HttpURLConnection.HTTP_OK
+                    val responseBody = (if (responseCode in 200..299) {
+                        connection.inputStream
+                    } else {
+                        connection.errorStream
+                    })?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+
+                    isSuccessfulSaveResponse(responseCode, responseBody)
                 } catch (e: Exception) {
                     android.util.Log.e(TAG, "上傳訓練紀錄失敗", e)
                     false
+                } finally {
+                    connection?.disconnect()
                 }
             }
 
             android.util.Log.d(TAG, "訓練成績存檔${if (success) "成功" else "失敗"}: $result (exercise_code=$exerciseCode)")
+            resultToPublishAfterSave(result, success)?.let(_lastResult::postValue)
             _saveStatus.postValue(if (success) SaveStatus.SUCCESS else SaveStatus.FAILED)
         }
     }
 
-
-    private fun resolveExerciseCode(exerciseId: String, level: String): String? {
-        if (level.isBlank() || exerciseId.isBlank()) return null
-        return exerciseId.split(",")
-            .map { it.trim() }
-            .firstOrNull { it.startsWith("$level-") }
-    }
 
     fun setDelegate(delegate: Int) {
         _delegate = delegate
