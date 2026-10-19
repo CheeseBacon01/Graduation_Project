@@ -18,6 +18,7 @@ package com.google.mediapipe.examples.poselandmarker.fragment
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -45,6 +46,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
 class StairClimbingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     enum class State {
@@ -58,6 +60,9 @@ class StairClimbingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListene
         private const val MAX_SETS = 3
         private const val REST_DURATION_MS = 60000L
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentStairClimbingBinding? = null
     private val binding get() = _binding!!
@@ -94,6 +99,11 @@ class StairClimbingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListene
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -127,6 +137,17 @@ class StairClimbingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListene
             if (cameraProvider != null) {
                 bindCameraUseCases()
             }
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -186,6 +207,7 @@ class StairClimbingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListene
         
         if (!isVisible) {
             binding.tvLargeStatus.text = "請將下半身\n放入畫面"
+            speakOut("請將下半身放入畫面", 5000L)
             binding.tvLargeStatus.visibility = View.VISIBLE
             binding.overlay.updateTestInfo(currentStepCount, currentSet, "請確保下半身可見", 0f, false, "目前步數", MAX_SETS)
             return
@@ -220,12 +242,14 @@ class StairClimbingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListene
                     totalStepCount++
                     stepIntervals.add(now - lastStepTime)
                     lastStepTime = now
+                    speakOut("$currentStepCount")
                 }
             }
             lastLeadingFoot = currentLeadingFoot
 
             if (currentStepCount >= STEPS_PER_SET) {
                 finishSet()
+                return
             }
         }
 
@@ -247,13 +271,23 @@ class StairClimbingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListene
     }
 
     private fun startRest() {
+        speakOut("休息時間")
         currentState = State.RESTING
         binding.tvLargeStatus.visibility = View.GONE
         binding.tvRestTimer.visibility = View.VISIBLE
         restTimer = object : CountDownTimer(REST_DURATION_MS, 1000) {
             override fun onTick(millisUntilFinished: Long) {
                 val secondsRemaining = millisUntilFinished / 1000
-                binding.tvRestTimer.text = String.format(Locale.getDefault(), "休息中: %ds", secondsRemaining)
+                binding.tvRestTimer.text = String.format(Locale.getDefault(), "休息中\n%ds", secondsRemaining)
+                binding.overlay.updateTestInfo(
+                    STEPS_PER_SET,
+                    currentSet,
+                    "休息中 (${secondsRemaining}s)",
+                    calculateCurrentAccuracy(),
+                    false,
+                    "目前步數",
+                    MAX_SETS
+                )
             }
             override fun onFinish() {
                 binding.tvRestTimer.visibility = View.GONE
@@ -261,6 +295,15 @@ class StairClimbingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListene
                 currentStepCount = 0
                 currentState = State.PREPARING
                 lastLeadingFoot = -1
+                binding.overlay.updateTestInfo(
+                    0,
+                    currentSet,
+                    "已走 0 / $STEPS_PER_SET 步",
+                    calculateCurrentAccuracy(),
+                    false,
+                    "目前步數",
+                    MAX_SETS
+                )
             }
         }.start()
     }
@@ -281,6 +324,7 @@ class StairClimbingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListene
     }
 
     private fun completeTraining() {
+        speakOut("測驗完成")
         currentState = State.COMPLETED
         binding.tvLargeStatus.visibility = View.GONE
         val finalAccuracy = if (setAccuracies.isNotEmpty()) setAccuracies.average().toFloat() else 0f
@@ -314,6 +358,10 @@ class StairClimbingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListene
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

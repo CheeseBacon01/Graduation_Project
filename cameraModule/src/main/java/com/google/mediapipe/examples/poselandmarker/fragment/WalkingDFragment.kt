@@ -2,6 +2,7 @@ package com.google.mediapipe.examples.poselandmarker.fragment
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -30,7 +31,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
-
+import android.speech.tts.TextToSpeech
 class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     enum class State {
@@ -47,6 +48,9 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
         private const val REST_TIME_MS = 60000L 
         private const val COOL_DOWN_TIME_MS = 120000L 
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentWalkingBinding? = null
     private val binding get() = _binding!!
@@ -82,6 +86,11 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         setupUI()
@@ -119,6 +128,17 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -199,7 +219,9 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
             if (restTimeLeftMs <= 0) {
                 startNextSet()
             } else {
-                binding.overlay.updateTestInfo(totalStepCount, currentSet, "休息時間 (剩餘 ${restTimeLeftMs/1000}s)", calculateAccuracy(), false, "總步數", MAX_SETS, time = (restTimeLeftMs/1000).toString())
+                val sec = (restTimeLeftMs / 1000).coerceAtLeast(0)
+                binding.overlay.updateTestInfo(totalStepCount, currentSet, "休息時間 (剩餘 ${sec}s)", calculateAccuracy(), false, "總步數", MAX_SETS, time = sec.toString())
+                binding.tvCenterStatus.text = "休息中\n剩餘 ${sec} 秒"
             }
             return
         }
@@ -209,7 +231,10 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
             if (coolDownTimeLeftMs <= 0) {
                 completeTest()
             } else {
-                binding.overlay.updateTestInfo(totalStepCount, currentSet, "全部完成！慢走冷卻中 (${coolDownTimeLeftMs/1000}s)", calculateAccuracy(), false, "總步數", MAX_SETS, time = (coolDownTimeLeftMs/1000).toString(), showAccuracy = false)
+                val sec = (coolDownTimeLeftMs / 1000).coerceAtLeast(0)
+                binding.overlay.updateTestInfo(totalStepCount, currentSet, "全部完成！慢走冷卻中 (${sec}s)", calculateAccuracy(), false, "總步數", MAX_SETS, time = sec.toString(), showAccuracy = false)
+                binding.tvCenterStatus.text = "慢走休息\n剩餘 ${sec} 秒"
+
             }
             return
         }
@@ -217,12 +242,16 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
         val landmarks = if (results.landmarks().isNotEmpty()) results.landmarks()[0] else null
         if (landmarks == null) {
             binding.overlay.updateTestInfo(totalStepCount, currentSet, "請將全身放入畫面", calculateAccuracy(), isTestCompleted, "總步數", MAX_SETS)
+            speakOut("請進入畫面", 3000L)
+            binding.tvCenterStatus.text = "請將全身放入畫面"
             return
         }
 
         val isVisible = intArrayOf(11, 12, 23, 24).all { landmarks[it].visibility().orElse(0f) > VISIBILITY_THRESHOLD }
         if (!isVisible) {
             binding.overlay.updateTestInfo(totalStepCount, currentSet, "請將全身放入畫面", calculateAccuracy(), isTestCompleted, "總步數", MAX_SETS)
+            speakOut("請進入畫面", 3000L)
+            binding.tvCenterStatus.text = "請將全身放入畫面"
             return
         }
 
@@ -268,11 +297,20 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
             }
             else -> {}
         }
+        val remainingWalkSec = ((WALK_TIME_SEC * 1000L - currentSessionWalkTimeMs) / 1000).coerceAtLeast(0)
+
+        // 4. 準備/起身/行走中大字顯示
+        binding.tvCenterStatus.text = when (currentState) {
+            State.SITTING -> "請坐在椅子上準備"
+            State.STANDING_UP -> "起身中..."
+            State.WALKING -> "行走中\n剩餘 ${remainingWalkSec} 秒"
+            else -> ""
+        }
 
         val statusText = when (currentState) {
             State.SITTING -> "第 $currentSet 組：請坐在椅子上準備"
             State.STANDING_UP -> "第 $currentSet 組：起身中..."
-            State.WALKING -> "步行中 (本組剩餘: ${WALK_TIME_SEC - currentSessionWalkTimeMs/1000}s)"
+            State.WALKING -> "步行中 (本組剩餘: ${remainingWalkSec}s)"
             else -> ""
         }
 
@@ -282,6 +320,8 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     }
 
     private fun pauseForRest() {
+        speakOut("休息時間")
+        binding.tvCenterStatus.text = "休息時間"
         currentState = State.RESTING
         restTimeLeftMs = REST_TIME_MS
         activity?.runOnUiThread {
@@ -302,6 +342,8 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     }
 
     private fun startCoolDown() {
+        speakOut("請慢走休息")
+        binding.tvCenterStatus.text = "慢走休息"
         currentState = State.COOL_DOWN
         coolDownTimeLeftMs = COOL_DOWN_TIME_MS
         activity?.runOnUiThread {
@@ -320,6 +362,7 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     private fun completeTest() {
         isTestCompleted = true
+        speakOut("測驗完成")
         val finalAccuracy = calculateAccuracy()
         val totalSeconds = MAX_SETS * WALK_TIME_SEC
 
@@ -336,6 +379,7 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
         binding.overlay.updateTestInfo(totalStepCount, currentSet, "訓練完成！", finalAccuracy, true, "總步數", MAX_SETS)
         binding.resultPanel.visibility = View.VISIBLE
         binding.btnRestDone.visibility = View.GONE
+        binding.tvCenterStatus.text = ""
         val totalWalkingTime = MAX_SETS * WALK_TIME_SEC
         binding.tvFinalResult.text = String.format(Locale.US, "級別: 步行(D級)\n總平均準確率: %.1f%%\n累計步數: %d 步\n訓練時間: %d 分鐘", finalAccuracy, totalStepCount, totalWalkingTime / 60)
     }
@@ -346,6 +390,10 @@ class WalkingDFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

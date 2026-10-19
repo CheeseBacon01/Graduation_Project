@@ -21,8 +21,8 @@ import android.content.Intent
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import androidx.activity.viewModels
-import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.fragment.FragmentNavigator
+import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.setupWithNavController
 import com.google.mediapipe.examples.poselandmarker.databinding.ActivityMainBinding
 import com.google.mediapipe.examples.poselandmarker.fragment.PermissionsFragment
@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_TRAINING_ATTEMPT_ID = "extra_training_attempt_id"
         const val EXTRA_TRAINING_COMPLETED = "extra_training_completed"
         const val EXTRA_TRAINING_WEEK = "extra_training_week"
+        const val EXTRA_API_BASE_URL = "extra_api_base_url"
 
         fun resolveTargetDestination(targetFragment: String): Int? {
             return when (targetFragment) {
@@ -88,7 +89,12 @@ class MainActivity : AppCompatActivity() {
         val accountId = intent.getIntExtra(EXTRA_ACCOUNT_ID, -1)
         val userLevel = intent.getStringExtra(EXTRA_USER_LEVEL) ?: ""
         setResult(Activity.RESULT_CANCELED, createTrainingResultIntent(completed = false))
-        viewModel.setAccountInfo(accountId, userLevel, intent.getStringExtra(EXTRA_EXPECTED_RESULT_CODE))
+        viewModel.setAccountInfo(
+            accountId,
+            userLevel,
+            intent.getStringExtra(EXTRA_EXPECTED_RESULT_CODE),
+            intent.getStringExtra(EXTRA_API_BASE_URL).orEmpty()
+        )
 
         val navHostFragment =
             supportFragmentManager.findFragmentById(R.id.fragment_container) as NavHostFragment
@@ -101,8 +107,6 @@ class MainActivity : AppCompatActivity() {
             ?: R.id.permissions_fragment
 
         val navGraph = navController.navInflater.inflate(R.navigation.nav_graph)
-        // 週 7~12 使用原本 navigation destination ID，但替換成進階步行 Fragment。
-        // 不需要修改未附於 ZIP 的 nav_graph.xml。
         val advancedFragment = when (targetFragment) {
             "walking_b_week7_fragment" -> WalkingBWeek7Fragment::class.java.name
             "walking_c_week7_fragment" -> WalkingCWeek7Fragment::class.java.name
@@ -110,11 +114,9 @@ class MainActivity : AppCompatActivity() {
             else -> null
         }
         if (advancedFragment != null) {
-            val baseDestination = targetFragment?.let(::resolveTargetDestination)
-            if (baseDestination != null) {
-                (navGraph.findNode(baseDestination) as? FragmentNavigator.Destination)
-                    ?.setClassName(advancedFragment)
-            }
+            val destination = targetFragment?.let(::resolveTargetDestination)
+            (destination?.let(navGraph::findNode) as? FragmentNavigator.Destination)
+                ?.setClassName(advancedFragment)
         }
         navGraph.setStartDestination(startDestination)
         navController.graph = navGraph
@@ -124,51 +126,30 @@ class MainActivity : AppCompatActivity() {
             // ignore the reselection
         }
         viewModel.lastResult.observe(this) { result ->
+            val expectedResultCode = intent.getStringExtra(EXTRA_EXPECTED_RESULT_CODE)
+            if (resultContainsExpectedCode(result.exerciseId, expectedResultCode)) {
+                setResult(Activity.RESULT_OK, createTrainingResultIntent(completed = true))
+            }
             android.widget.Toast.makeText(
                 this,
-                "運動完成：${result.exerciseName}\n準確度：${String.format("%.1f", result.accuracy)}%\n正在同步成績，請勿離開。",
+                "運動完成：${result.exerciseName}\n準確度：${String.format("%.1f", result.accuracy)}%",
                 android.widget.Toast.LENGTH_LONG
             ).show()
         }
 
         viewModel.saveStatus.observe(this) { status ->
-            when (status) {
-                SaveStatus.SUCCESS -> {
-                    // 只有 PHP 回傳 success=true 且 request_id 相符，才把 Activity 標記為完成。
-                    val expected = intent.getStringExtra(EXTRA_EXPECTED_RESULT_CODE)
-                    if (viewModel.savedExerciseCode == expected &&
-                        resultContainsExpectedCode(viewModel.lastResult.value?.exerciseId ?: "", expected)
-                    ) {
-                        setResult(Activity.RESULT_OK, createTrainingResultIntent(completed = true))
-                        android.widget.Toast.makeText(this, "訓練成績已成功儲存", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }
-                SaveStatus.FAILED -> {
-                    androidx.appcompat.app.AlertDialog.Builder(this)
-                        .setTitle("訓練成績同步失敗")
-                        .setMessage("紀錄尚未確認儲存，按「重試」會上傳同一筆資料，不會重複給點。")
-                        .setPositiveButton("重試") { _, _ -> viewModel.retrySave() }
-                        .setNegativeButton("離開（不標記完成）") { _, _ -> finish() }
-                        .setCancelable(false)
-                        .show()
-                }
-                else -> Unit
+            if (status == SaveStatus.FAILED) {
+                android.widget.Toast.makeText(
+                    this,
+                    "訓練成績同步失敗，請確認網路連線",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
             }
         }
     }
 
     override fun onBackPressed() {
         finish()
-    }
-
-    // 所有訓練 Fragment 的「結束」按鈕都呼叫 requireActivity().finish()，
-    // 因此在這裡統一攔截，避免 API 尚未完成就先結束 Activity。
-    override fun finish() {
-        if (viewModel.isSaving) {
-            android.widget.Toast.makeText(this, "正在儲存訓練紀錄，請稍候", android.widget.Toast.LENGTH_SHORT).show()
-            return
-        }
-        super.finish()
     }
 
     private fun createTrainingResultIntent(completed: Boolean) = Intent().apply {

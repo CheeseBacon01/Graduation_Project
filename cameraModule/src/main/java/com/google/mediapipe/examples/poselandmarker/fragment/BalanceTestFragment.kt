@@ -49,7 +49,9 @@ abstract class BaseBalanceTestFragment : Fragment(), PoseLandmarkerHelper.Landma
     private lateinit var backgroundExecutor: ExecutorService
 
     // 共用測試狀態
+    protected var isPreparing = false
     protected var isTesting = false
+    protected var prepTimer: CountDownTimer? = null
     protected var timer: CountDownTimer? = null
     private var initialAnklePos: Pair<Float, Float>? = null
     private val MOVEMENT_THRESHOLD = 0.05f
@@ -90,7 +92,6 @@ abstract class BaseBalanceTestFragment : Fragment(), PoseLandmarkerHelper.Landma
 
         binding.btnDialogOk.setOnClickListener {
             binding.dialogLayout.visibility = View.GONE
-            // 因為是獨立動作，結束後直接返回上一頁 (或列表頁)
             findNavController().navigateUp()
         }
 
@@ -168,7 +169,7 @@ abstract class BaseBalanceTestFragment : Fragment(), PoseLandmarkerHelper.Landma
                 accuracy = 0f,
                 label = "",
                 maxSets = -1,
-                setLabel = "動作: $stageName", // 改為顯示當前獨立動作名稱
+                setLabel = "動作: $stageName",
                 time = String.format(Locale.US, "%.2f", currentSeconds),
                 showAccuracy = false
             )
@@ -187,8 +188,10 @@ abstract class BaseBalanceTestFragment : Fragment(), PoseLandmarkerHelper.Landma
             binding.tvCenterStatus.text = "請全身放入畫面"
             speakOut("請全身放入畫面", 2000L)
 
-            if (isTesting) {
+            if (isPreparing || isTesting) {
+                prepTimer?.cancel()
                 timer?.cancel()
+                isPreparing = false
                 isTesting = false
                 binding.tvTimer.text = "偵測中斷"
                 speakOut("偵測中斷")
@@ -201,11 +204,10 @@ abstract class BaseBalanceTestFragment : Fragment(), PoseLandmarkerHelper.Landma
         val dx = abs(leftAnkle.x() - rightAnkle.x())
         val dy = abs(leftAnkle.y() - rightAnkle.y())
 
-        if (!isTesting) {
+        // 1. 未開始準備且未開始測試：檢查姿勢是否符合要求
+        if (!isPreparing && !isTesting) {
             if (isCorrectStance(dx, dy)) {
-                binding.tvStatus.text = "姿勢正確，開始測試"
-                binding.tvCenterStatus.text = "姿勢正確\n開始測試"
-                if (!binding.dialogLayout.isShown) startCountdown()
+                if (!binding.dialogLayout.isShown) startPrepCountdown()
             } else {
                 binding.tvStatus.text = instructionMessage
                 binding.tvCenterStatus.text = instructionMessage
@@ -214,6 +216,19 @@ abstract class BaseBalanceTestFragment : Fragment(), PoseLandmarkerHelper.Landma
             return
         }
 
+        // 2. 5 秒準備倒數期間：持續檢查姿勢，走樣則取消準備
+        if (isPreparing) {
+            if (!isCorrectStance(dx, dy)) {
+                prepTimer?.cancel()
+                isPreparing = false
+                binding.tvStatus.text = "姿勢不正確，請重新準備"
+                binding.tvCenterStatus.text = "姿勢不正確\n請重新準備"
+                speakOut("姿勢不正確，請重新準備", 2000L)
+            }
+            return
+        }
+
+        // 3. 正式測試中 (isTesting == true)
         if (initialAnklePos == null) {
             initialAnklePos = Pair((leftAnkle.x() + rightAnkle.x()) / 2, (leftAnkle.y() + rightAnkle.y()) / 2)
         }
@@ -224,9 +239,32 @@ abstract class BaseBalanceTestFragment : Fragment(), PoseLandmarkerHelper.Landma
         }
     }
 
-    private fun startCountdown() {
+    private fun startPrepCountdown() {
+        if (isPreparing || isTesting) return
+        isPreparing = true
+        speakOut("姿勢正確，3秒後開始")
+        binding.tvStatus.text = "姿勢正確，準備倒數 3 秒"
+        binding.tvCenterStatus.text = "姿勢正確\n準備倒數 3 秒"
+
+        prepTimer?.cancel()
+        prepTimer = object : CountDownTimer(3000L, 100) {
+            override fun onTick(ms: Long) {
+                val secondsLeft = (ms / 1000) + 1
+                binding.tvTimer.text = "準備: ${secondsLeft}秒"
+                binding.tvCenterStatus.text = "請保持姿勢\n準備倒數 $secondsLeft 秒"
+            }
+
+            override fun onFinish() {
+                isPreparing = false
+                startTest()
+            }
+        }.start()
+    }
+
+    private fun startTest() {
         if (isTesting) return
-        speakOut("動作正確開始測試")
+        speakOut("開始測試")
+        binding.tvStatus.text = "測試中..."
         binding.tvCenterStatus.text = "測試中..."
         isTesting = true
         initialAnklePos = null
@@ -235,9 +273,10 @@ abstract class BaseBalanceTestFragment : Fragment(), PoseLandmarkerHelper.Landma
         timer?.cancel()
         timer = object : CountDownTimer(timeLimit, 100) {
             override fun onTick(ms: Long) {
-                binding.tvTimer.text = "倒數: ${(ms/1000) + 1}秒"
+                binding.tvTimer.text = "倒數: ${(ms / 1000) + 1}秒"
                 currentSeconds = (10000L - ms) / 1000f
             }
+
             override fun onFinish() {
                 currentSeconds = 10f
                 if (isTesting) passTest()
@@ -246,17 +285,21 @@ abstract class BaseBalanceTestFragment : Fragment(), PoseLandmarkerHelper.Landma
     }
 
     private fun failTest() {
+        isPreparing = false
         isTesting = false
         isTestFinished = true
+        prepTimer?.cancel()
         timer?.cancel()
-        val timerText = binding.tvTimer.text.toString()
-        val elapsed = 10 - (timerText.filter { it.isDigit() }.toLongOrNull() ?: 10L)
+        val elapsed = currentSeconds.toLong()
         showResult("獲得 ${calculateFailScore(elapsed)}")
     }
 
     private fun passTest() {
+        isPreparing = false
         isTesting = false
         isTestFinished = true
+        prepTimer?.cancel()
+        timer?.cancel()
         showResult("獲得 $passScore")
     }
 
@@ -278,6 +321,7 @@ abstract class BaseBalanceTestFragment : Fragment(), PoseLandmarkerHelper.Landma
         }
         _binding = null
         super.onDestroyView()
+        prepTimer?.cancel()
         timer?.cancel()
         backgroundExecutor.shutdown()
     }

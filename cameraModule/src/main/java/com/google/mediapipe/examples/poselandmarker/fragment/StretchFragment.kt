@@ -18,6 +18,7 @@ package com.google.mediapipe.examples.poselandmarker.fragment
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -46,6 +47,7 @@ import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.atan2
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
 class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     companion object {
@@ -59,6 +61,9 @@ class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
         private const val ANGLE_THRESHOLD = 150.0 // 手臂拉直角度門檻
         private const val VISIBILITY_THRESHOLD = 0.5f
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentStretchBinding? = null
     private val binding get() = _binding!!
@@ -97,6 +102,11 @@ class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -128,6 +138,17 @@ class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -197,6 +218,7 @@ class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
                 isPaused = true
             }
             val statusMsg = if (isHolding) "請將雙肩、手肘與手腕放入畫面" else "請將雙肩放入畫面"
+            speakOut("請進入畫面",3000L)
             binding.overlay.updateTestInfo(currentRep, currentSet, statusMsg, calculateAvgAccuracy(), isTestCompleted, "次數")
             return
         } else {
@@ -231,6 +253,7 @@ class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
         var status = if (isHolding || isRelaxing || isRestingBetweenSets) {
             currentTimerStatusText
         } else {
+            speakOut("請向上伸展", 3000L)
             "請向上伸展並拉直手臂"
         }
 
@@ -241,6 +264,7 @@ class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
             } else {
                 // 維持姿勢時放下手臂：提醒、秒數持續倒數、計為 0 分 (扣分)
                 status = "手臂請維持拉直高舉！(${currentTimerStatusText.filter { it.isDigit() }}s)"
+                speakOut("手臂請伸直", 3000L)
                 totalScoreAccumulated += 0f
             }
             scoreTicks++
@@ -261,6 +285,7 @@ class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     }
 
     private fun startHoldingTimer(durationMs: Long = HOLD_TIME_MS) {
+        speakOut("請維持", 5000L)
         isHolding = true
         timer?.cancel()
         timer = object : CountDownTimer(durationMs, 1000) {
@@ -276,6 +301,7 @@ class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     }
 
     private fun startRelaxingTimer(durationMs: Long = RELAX_TIME_MS) {
+        speakOut("請放鬆")
         isRelaxing = true
         timer?.cancel()
         timer = object : CountDownTimer(durationMs, 1000) {
@@ -294,6 +320,7 @@ class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     }
 
     private fun startSetRestTimer(durationMs: Long = SET_REST_TIME_MS) {
+        speakOut("休息時間")
         isRestingBetweenSets = true
         timer?.cancel()
         timer = object : CountDownTimer(durationMs, 1000) {
@@ -310,6 +337,7 @@ class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     }
 
     private fun completeTest() {
+        speakOut("測驗完成")
         isTestCompleted = true
         val finalAccuracy = calculateAvgAccuracy()
         // --- 封包傳送 ---
@@ -344,6 +372,10 @@ class StretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

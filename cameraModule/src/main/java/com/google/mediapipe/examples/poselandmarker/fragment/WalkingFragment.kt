@@ -17,6 +17,7 @@ package com.google.mediapipe.examples.poselandmarker.fragment
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -45,6 +46,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
 
 class WalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
@@ -58,6 +60,9 @@ class WalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
         private const val TARGET_STEPS_PER_SEC = 0.8f // 每秒目標步數 (用於評分)
         private const val MIN_STEP_DISTANCE = 0.02f // 判定領先腳的最小位移差
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentWalkingBinding? = null
     private val binding get() = _binding!!
@@ -99,6 +104,11 @@ class WalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         setupSpinners()
@@ -129,6 +139,7 @@ class WalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
         binding.btnRestDone.setOnClickListener {
             binding.btnRestDone.visibility = View.GONE
+            binding.tvCenterStatus.text = ""
             currentSessionWalkTimeMs = 0L
             currentSet++
             currentState = State.STANDING_UP // 休息完繼續，不需要坐下
@@ -147,6 +158,17 @@ class WalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -209,21 +231,32 @@ class WalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     }
 
     private fun processWalkingLogic(results: PoseLandmarkerResult) {
-        if (isTestCompleted || results.landmarks().isEmpty() || currentState == State.RESTING) return
-
-        val landmarks = results.landmarks()[0]
-
-        val isVisible = intArrayOf(11, 12, 23, 24).all { landmarks[it].visibility().orElse(0f) > VISIBILITY_THRESHOLD }
-        if (!isVisible) {
-            binding.overlay.updateTestInfo(totalStepCount, currentSet, "請將全身放入畫面", calculateAccuracy(), isTestCompleted, "總步數", maxSets)
-            lastFrameTime = 0
-            return
-        }
-
         val currentTime = System.currentTimeMillis()
         if (lastFrameTime == 0L) lastFrameTime = currentTime
         val deltaTime = currentTime - lastFrameTime
         lastFrameTime = currentTime
+
+        if (isTestCompleted || currentState == State.RESTING) return
+
+        // 1. 安全取得人體骨架（若畫面無人則為 null）
+        val landmarks = if (results.landmarks().isNotEmpty()) results.landmarks()[0] else null
+
+        // 2. 畫面中未偵測到任何人時提示
+        if (landmarks == null) {
+            binding.overlay.updateTestInfo(totalStepCount, currentSet, "請將全身放入畫面", calculateAccuracy(), isTestCompleted, "總步數", maxSets)
+            speakOut("請進入畫面", 3000L)
+            binding.tvCenterStatus.text = "請將全身放入畫面"
+            return
+        }
+
+        val isVisible = intArrayOf(11, 12, 23, 24).all { landmarks[it].visibility().orElse(0f) > VISIBILITY_THRESHOLD }
+        if (!isVisible) {
+            speakOut("請進入畫面", 3000L)
+            binding.tvCenterStatus.text = "請將全身放入畫面"
+            binding.overlay.updateTestInfo(totalStepCount, currentSet, "請將全身放入畫面", calculateAccuracy(), isTestCompleted, "總步數", maxSets)
+            lastFrameTime = 0
+            return
+        }
 
         val leftHip = landmarks[23]; val rightHip = landmarks[24]
         val leftKnee = landmarks[25]; val rightKnee = landmarks[26]
@@ -271,10 +304,20 @@ class WalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
             State.RESTING -> { }
         }
 
+        val remainingWalkSec = ((singleWalkLimitSec * 1000L - currentSessionWalkTimeMs) / 1000).coerceAtLeast(0)
+
+        // 4. 準備/起身/行走中大字顯示
+        binding.tvCenterStatus.text = when (currentState) {
+            State.SITTING -> "請坐在椅子上準備"
+            State.STANDING_UP -> "起身中..."
+            State.WALKING -> "行走中\n剩餘 ${remainingWalkSec} 秒"
+            else -> ""
+        }
+
         val statusText = when (currentState) {
             State.SITTING -> "第 $currentSet 組：請坐在椅子上準備"
             State.STANDING_UP -> if (currentSet == 1) "起身中..." else "第 $currentSet 組：請開始行走"
-            State.WALKING -> "步行中 (本組已走: ${currentSessionWalkTimeMs/1000}s)"
+            State.WALKING -> "步行中 (本組剩餘: ${remainingWalkSec}s)"
             State.RESTING -> "請站立休息"
         }
 
@@ -282,6 +325,8 @@ class WalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     }
 
     private fun pauseForRest() {
+        speakOut("請站立休息")
+        binding.tvCenterStatus.text = "站立休息時間"
         currentState = State.RESTING
         activity?.runOnUiThread {
             binding.btnRestDone.visibility = View.VISIBLE
@@ -300,6 +345,7 @@ class WalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
     private fun completeTest() {
         isTestCompleted = true
+        speakOut("測驗完成")
         val finalAccuracy = calculateAccuracy()
         val totalSeconds = maxSets * singleWalkLimitSec
 
@@ -313,6 +359,7 @@ class WalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
             durationSeconds = totalSeconds
         )
         viewModel.postResult(result)
+        binding.tvCenterStatus.text = ""
         binding.overlay.updateTestInfo(totalStepCount, currentSet, "訓練完成！", calculateAccuracy(), true, "總步數", maxSets)
         binding.resultPanel.visibility = View.VISIBLE
         binding.btnRestDone.visibility = View.GONE
@@ -325,6 +372,10 @@ class WalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

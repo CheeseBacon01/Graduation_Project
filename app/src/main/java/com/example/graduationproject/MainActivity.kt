@@ -59,6 +59,12 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
     var globalAccountId by remember { mutableIntStateOf(savedAccountId) }
     val assignmentViewModel: AssignmentViewModel = viewModel()
 
+    LaunchedEffect(globalAccountId) {
+        if (userViewModel.bindAccount(globalAccountId)) {
+            assignmentViewModel.resetForAccountChange()
+        }
+    }
+
     val trainingLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -70,7 +76,7 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                 attemptId = attemptId,
                 exerciseId = exerciseId,
                 completed = result.resultCode == Activity.RESULT_OK &&
-                        data.getBooleanExtra(CameraActivity.EXTRA_TRAINING_COMPLETED, false)
+                    data.getBooleanExtra(CameraActivity.EXTRA_TRAINING_COMPLETED, false)
             )
         } else {
             assignmentViewModel.cancelActiveTraining()
@@ -88,8 +94,6 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                 onNavigateToRegister = { navController.navigate("register") },
                 onNavigateToForgotPassword = { navController.navigate("forgot_password") },
                 onLoginSuccess = { role, accountId ->
-                    userViewModel.reset()
-                    assignmentViewModel.clear()
                     globalAccountId = accountId
                     sharedPreferences.edit().putInt("ACCOUNT_ID", accountId).apply()
                     navController.navigate("home") {
@@ -113,15 +117,16 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
         composable("home") {
             ElderlyDashboard(
                 accountId = globalAccountId,
-                isSurveyComplete = userViewModel.isSurveyComplete,
-                userLevel = userViewModel.userLevel,
-                onGradeLoaded = { grade ->
-                    if (userViewModel.userLevel != grade) userViewModel.setGradeFromServer(grade)
-                },
+                userViewModel = userViewModel,
                 onNavigateToSettings = { navController.navigate("settings") },
                 onNavigateToSurvey = { navController.navigate("survey") },
                 onStartTraining = { exerciseId ->
                     val selectedExerciseId = exerciseId ?: return@ElderlyDashboard
+                    val grade = userViewModel.currentGrade
+                    if (grade == null) {
+                        Toast.makeText(context, "尚未取得有效評估級別，無法開始訓練", Toast.LENGTH_SHORT).show()
+                        return@ElderlyDashboard
+                    }
                     val attempt = assignmentViewModel.beginTraining(selectedExerciseId)
                         ?: return@ElderlyDashboard
                     val route = resolveCameraExerciseRoute(selectedExerciseId, attempt.week)
@@ -134,9 +139,10 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                     intent.putExtra(CameraActivity.EXTRA_EXPECTED_RESULT_CODE, route.resultCode)
                     intent.putExtra(CameraActivity.EXTRA_REQUESTED_EXERCISE_ID, attempt.exerciseId)
                     intent.putExtra(CameraActivity.EXTRA_TRAINING_ATTEMPT_ID, attempt.id)
-                    intent.putExtra(CameraActivity.EXTRA_ACCOUNT_ID, attempt.accountId)
-                    intent.putExtra(CameraActivity.EXTRA_USER_LEVEL, attempt.level)
+                    intent.putExtra(CameraActivity.EXTRA_ACCOUNT_ID, globalAccountId)
+                    intent.putExtra(CameraActivity.EXTRA_USER_LEVEL, grade)
                     intent.putExtra(CameraActivity.EXTRA_TRAINING_WEEK, attempt.week)
+                    intent.putExtra(CameraActivity.EXTRA_API_BASE_URL, BuildConfig.API_BASE_URL)
                     trainingLauncher.launch(intent)
                 },
                 assignmentViewModel = assignmentViewModel
@@ -162,7 +168,11 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
 
                             if (response.isSuccessful && response.body()?.success == true) {
                                 Toast.makeText(localContext, "評估結果已成功紀錄", Toast.LENGTH_SHORT).show()
-                                userViewModel.completeSurvey(grade)
+                                userViewModel.updateAssessmentAfterSave(
+                                    accountId = globalAccountId,
+                                    grade = grade,
+                                    sppbScore = score
+                                )
                                 navController.popBackStack()
                             } else {
                                 Toast.makeText(localContext, "儲存失敗：${response.body()?.message}", Toast.LENGTH_LONG).show()
@@ -183,7 +193,7 @@ fun AppNavigation(userViewModel: UserViewModel = viewModel()) {
                 onNavigateBack = { navController.popBackStack() },
                 onLogout = {
                     userViewModel.reset()
-                    assignmentViewModel.clear()
+                    assignmentViewModel.resetForAccountChange()
                     sharedPreferences.edit().remove("ACCOUNT_ID").apply()
                     globalAccountId = -1
                     navController.navigate("login") {
@@ -221,7 +231,8 @@ internal data class CameraExerciseRoute(
     val resultCode: String
 )
 
-internal fun resolveCameraExerciseRoute(exerciseId: String, week: Int = 1): CameraExerciseRoute? {
+internal fun resolveCameraExerciseRoute(exerciseId: String, week: Int): CameraExerciseRoute? {
+    if (week !in 1..12) return null
     return when (exerciseId) {
         "A1" -> CameraExerciseRoute(CAMERA_FRAGMENT_WALKING, "A-1")
         "B7" -> CameraExerciseRoute(if (week >= 7) "walking_b_week7_fragment" else CAMERA_FRAGMENT_WALKING_B, "B-1")

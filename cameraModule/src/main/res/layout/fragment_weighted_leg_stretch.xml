@@ -39,6 +39,14 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="稍微側身執行(約45度)"
+                android:textColor="#FF0000"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
                 android:text="坐在椅子上，在一隻腿的腳踝上放 500g 負重沙包，水平抬起小腿並盡可能保持筆直。\n• 如果無法重複 12 次，請取下負重沙包。"
                 android:textSize="16sp"

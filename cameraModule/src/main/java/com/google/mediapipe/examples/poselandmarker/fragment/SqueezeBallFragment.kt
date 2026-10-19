@@ -38,6 +38,7 @@ import java.util.concurrent.Executors
 import kotlin.math.sqrt
 import kotlin.math.pow
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
 
 class SqueezeBallFragment : Fragment() {
 
@@ -51,6 +52,10 @@ class SqueezeBallFragment : Fragment() {
         private const val PERFECT_SQUEEZE_RATIO = 0.50f // 完美握緊的比例 (指尖幾乎貼到大拇指)
         private const val TARGET_HOLD_MS = 2000L // 目標停留時間 (2秒)
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
+    private var isReadyToStart = false
     private var minSqueezeRatioDuringHold = 1.0f
     private var _binding: FragmentSqueezeBallBinding? = null
     private val binding get() = _binding!!
@@ -94,6 +99,11 @@ class SqueezeBallFragment : Fragment() {
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -127,6 +137,17 @@ class SqueezeBallFragment : Fragment() {
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -227,17 +248,29 @@ class SqueezeBallFragment : Fragment() {
             isBallDetected = false // 手不見了，強制重置球的偵測
             binding.overlay.isTrackingBall = false // 通知 UI 關閉紅框
             binding.overlay.updateTestInfo(currentRep, currentSet, "請將手放入畫面", calculateAvgAccuracy(), isTestCompleted, "次數", SETS_PER_HAND)
+            speakOut("請將手放入畫面", 5000L)
+            isReadyToStart = false
             return
         }
 
         val handedness = results.handedness().firstOrNull()?.firstOrNull()?.categoryName() // "Left" or "Right"
-        val expectedHand = if (isRightHand) "Right" else "Left"
+
+        // --- 關鍵修正：處理前鏡頭的鏡像翻轉 ---
+        val isFrontCamera = cameraFacing == CameraSelector.LENS_FACING_FRONT
+
+        val expectedHand = if (isFrontCamera) {
+            if (isRightHand) "Left" else "Right"
+        } else {
+            if (isRightHand) "Right" else "Left"
+        }
 
         // 2. 檢查是否偵測到正確的手
         if (handedness != expectedHand) {
             val msg = if (isRightHand) "請使用右手" else "請使用左手"
             binding.overlay.isTrackingBall = false // 錯誤的手不畫框
             binding.overlay.updateTestInfo(currentRep, currentSet, msg, calculateAvgAccuracy(), isTestCompleted, "次數", SETS_PER_HAND)
+            speakOut(msg, 3000L)
+            isReadyToStart = false
             return
         }
 
@@ -247,7 +280,14 @@ class SqueezeBallFragment : Fragment() {
         // 3. 判斷是否有球
         if (!isBallDetected) {
             binding.overlay.updateTestInfo(currentRep, currentSet, "請手上拿一顆球", calculateAvgAccuracy(), isTestCompleted, "次數", SETS_PER_HAND)
+            speakOut("請手上拿一顆球", 5000L)
+            isReadyToStart = false
             return
+        }
+        if (!isReadyToStart) {
+            isReadyToStart = true
+            // 強制打斷先前的警告語音，並提示開始
+            speakOut("擠壓球", 3000L)
         }
 
         // 4. 計算擠壓程度 (大拇指尖與其他指尖的平均距離)
@@ -308,13 +348,14 @@ class SqueezeBallFragment : Fragment() {
                             completeTest()
                         }
                     }
+                    return
                 }
             }
         }
 
         val status = when {
-            isSqueezing -> "請慢慢鬆開手"
-            else -> "請慢慢用力緊握"
+            isSqueezing -> "請慢慢鬆開手".also { speakOut("放鬆", 3000L) }
+            else -> "請慢慢用力緊握".also { speakOut("擠壓球", 3000L) }
         }
 
         val handLabel = if (isRightHand) "右手" else "左手"
@@ -328,6 +369,7 @@ class SqueezeBallFragment : Fragment() {
     private fun calculateAvgAccuracy() = if (accuracyTicks == 0) 0f else (totalAccuracyAccumulated / accuracyTicks).coerceIn(0f, 100f)
 
     private fun startRestTimer() {
+        speakOut("休息時間")
         isResting = true
         timer?.cancel()
         timer = object : CountDownTimer(SET_REST_TIME_MS, 1000) {
@@ -339,11 +381,13 @@ class SqueezeBallFragment : Fragment() {
                 isResting = false
                 currentSet++
                 currentRep = 0
+                isReadyToStart = false
             }
         }.start()
     }
 
     private fun switchToLeftHand() {
+        speakOut("休息時間")
         isResting = true
         timer?.cancel()
         timer = object : CountDownTimer(SET_REST_TIME_MS, 1000) {
@@ -352,6 +396,7 @@ class SqueezeBallFragment : Fragment() {
                 binding.overlay.updateTestInfo(currentRep, currentSet, "即將換左手: $currentTimerStatusText", calculateAvgAccuracy(), isTestCompleted, "次數", SETS_PER_HAND)
             }
             override fun onFinish() {
+                isReadyToStart = false
                 isResting = false
                 isRightHand = false
                 currentSet = 1
@@ -363,6 +408,7 @@ class SqueezeBallFragment : Fragment() {
 
     private fun completeTest() {
         isTestCompleted = true
+        speakOut("測驗完成")
         val finalAccuracy = calculateAvgAccuracy()
         // --- 封包傳送 ---
         val result = ExerciseResult(
@@ -406,6 +452,10 @@ class SqueezeBallFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

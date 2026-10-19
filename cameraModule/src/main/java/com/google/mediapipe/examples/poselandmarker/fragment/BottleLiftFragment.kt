@@ -328,7 +328,7 @@ class BottleLiftFragment : Fragment() {
         if (!isReadyToStart) {
             isReadyToStart = true
             // 強制打斷先前的警告語音，並提示開始
-            speakOut("舉起")
+            speakOut("舉起", 5000L)
         }
 
         // 5. 角度計算
@@ -337,18 +337,20 @@ class BottleLiftFragment : Fragment() {
 
         // 6. 舉水瓶動作判定
         if (!isLifting) {
+            speakOut("舉起", 5000L)
             if (leftAngle < LIFT_ANGLE_THRESHOLD && rightAngle < LIFT_ANGLE_THRESHOLD) {
                 isLifting = true
-                speakOut("放下")
+                speakOut("放下", 5000L)
             }
         } else {
+            speakOut("放下", 5000L)
             if (leftAngle > DOWN_ANGLE_THRESHOLD && rightAngle > DOWN_ANGLE_THRESHOLD) {
                 isLifting = false
                 currentRep++
                 if (currentRep >= TOTAL_REPS_PER_SET) {
                     if (currentSet < TOTAL_SETS) startSetRestTimer() else completeTest()
                 }else {
-                    speakOut("舉起")
+                    speakOut("舉起",5000L)
                 }
             }
         }

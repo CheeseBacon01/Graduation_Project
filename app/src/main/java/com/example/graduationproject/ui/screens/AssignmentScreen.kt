@@ -42,12 +42,9 @@ private val TextSub = Color(0xFF5D5D5D)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AssignmentScreen(
-    accountId: Int = -1,
     userLevel: String = "",
     currentDay: Int = 1,
-    currentWeek: Int = 1,
-    trainingDate: String = "",
-    programCompleted: Boolean = false,
+    currentWeek: Int? = null,
     isSurveyComplete: Boolean = false,
     onNavigateToSurvey: () -> Unit = {},
     onStartTraining: (String?) -> Unit = {},
@@ -62,15 +59,10 @@ fun AssignmentScreen(
         }
     }
 
-    LaunchedEffect(accountId, userLevel, currentDay, currentWeek, trainingDate, isSurveyComplete, programCompleted) {
-        viewModel.updateParams(
-            accountId = accountId,
-            level = if (isSurveyComplete) userLevel else "",
-            day = currentDay,
-            week = currentWeek,
-            trainingDate = trainingDate,
-            programCompleted = programCompleted
-        )
+    LaunchedEffect(userLevel, currentDay, currentWeek, isSurveyComplete) {
+        if (isSurveyComplete && userLevel.isNotEmpty()) {
+            viewModel.updateParams(userLevel, currentDay, currentWeek)
+        }
     }
 
     Scaffold(
@@ -78,7 +70,9 @@ fun AssignmentScreen(
             LargeTopAppBar(
                 title = {
                     Text(
-                        "訓練手冊 - 第 ${currentWeek.coerceIn(1, 12)} 週",
+                        currentWeek?.takeIf { it in 1..12 }
+                            ?.let { "訓練手冊 - 第 $it 週" }
+                            ?: "訓練手冊",
                         fontSize = 32.scaledSp(),
                         fontWeight = FontWeight.Bold,
                         color = TextMain
@@ -128,41 +122,17 @@ fun AssignmentScreen(
 
             if (!isSurveyComplete || userLevel.isEmpty()) {
                 EmptyStateView(onNavigateToSurvey)
-            } else if (programCompleted) {
+            } else if (uiState.isWeekLoading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("12 週訓練計畫已完成", fontSize = 24.scaledSp())
+                    CircularProgressIndicator()
                 }
-            } else if (currentDay in 6..7) {
+            } else if (uiState.weekError != null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("今天是休息日，週一至週五再繼續訓練！", fontSize = 22.scaledSp())
-                }
-            } else if (uiState.isLoadingRecords) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        Spacer(Modifier.height(16.dp))
-                        Text("正在同步今日訓練紀錄", fontSize = 18.scaledSp())
-                    }
-                }
-            } else if (uiState.loadError != null) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(uiState.loadError ?: "同步失敗", color = MaterialTheme.colorScheme.error)
-                        Spacer(Modifier.height(16.dp))
-                        Button(onClick = { viewModel.reloadRecords() }) { Text("重新載入") }
-                    }
-                }
-            } else if (uiState.exercises.isNotEmpty() &&
-                uiState.exercises.all { it.status == ExerciseStatus.COMPLETED }
-            ) {
-                Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
-                    Text("今天的訓練已全部完成！", fontSize = 22.scaledSp(), fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(16.dp))
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                        items(uiState.exercises, key = { it.id }) { exercise ->
-                            ExerciseCard(exercise = exercise, onStartClick = {})
-                        }
-                    }
+                    Text(
+                        text = uiState.weekError ?: "訓練週次資料異常",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 20.scaledSp()
+                    )
                 }
             } else {
                 LazyColumn(

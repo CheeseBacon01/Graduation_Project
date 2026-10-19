@@ -18,6 +18,7 @@ package com.google.mediapipe.examples.poselandmarker.fragment
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.CountDownTimer
+import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -45,6 +46,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
 
 class ChairArmStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
@@ -57,6 +59,9 @@ class ChairArmStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListe
         private const val SET_REST_TIME_MS = 30000L
         private const val VISIBILITY_THRESHOLD = 0.5f
     }
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     private var _binding: FragmentChairArmStretchBinding? = null
     private val binding get() = _binding!!
@@ -93,6 +98,11 @@ class ChairArmStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListe
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -124,6 +134,17 @@ class ChairArmStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListe
                 CameraSelector.LENS_FACING_FRONT
             }
             bindCameraUseCases()
+        }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
         }
     }
 
@@ -176,66 +197,81 @@ class ChairArmStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListe
     }
 
     private fun processLogic(results: PoseLandmarkerResult) {
-        if (isTestCompleted || results.landmarks().isEmpty()) return
+        if (isTestCompleted) return
 
-        val landmarks = results.landmarks()[0]
+        if (isRestingBetweenSets || isRelaxing) {
+            binding.overlay.updateTestInfo(currentRep, currentSet, currentTimerStatusText, calculateAvgAccuracy(), isTestCompleted, "次數", 3)
+            return
+        }
 
-        // 1. 可見度檢查 (只需肩膀，因為手腕往後伸時常被椅背擋住)
-        val requiredIndices = intArrayOf(11, 12)
-        val isVisible = requiredIndices.all { landmarks[it].visibility().orElse(0f) > VISIBILITY_THRESHOLD }
-
-        if (!isVisible) {
-            if (!isPaused && (isHolding || isRelaxing || isRestingBetweenSets)) {
+        if (results.landmarks().isEmpty()) {
+            if (!isPaused && isHolding) {
                 timer?.cancel()
                 isPaused = true
             }
-            binding.overlay.updateTestInfo(currentRep, currentSet, "請面對鏡頭並將雙肩放入畫面", calculateAvgAccuracy(), isTestCompleted, "次數")
+            binding.overlay.updateTestInfo(currentRep, currentSet, "請進入畫面", calculateAvgAccuracy(), isTestCompleted, "次數", 3)
+            speakOut("請進入畫面", 5000L)
+            return
+        }
+
+        val landmarks = results.landmarks()[0]
+
+        // 1. 可見度檢查：只需檢查 鼻子(0) 與 雙肩(11, 12)
+        val requiredIndices = intArrayOf(0, 11, 12)
+        val isVisible = requiredIndices.all { landmarks[it].visibility().orElse(0f) > VISIBILITY_THRESHOLD }
+
+        if (!isVisible) {
+            if (!isPaused && isHolding) {
+                timer?.cancel()
+                isPaused = true
+            }
+            binding.overlay.updateTestInfo(currentRep, currentSet, "請將頭部與雙肩放入畫面", calculateAvgAccuracy(), isTestCompleted, "次數", 3)
+            speakOut("請進入畫面", 5000L)
             return
         } else if (isPaused) {
             isPaused = false
-            when {
-                isHolding -> startHoldingTimer(millisRemaining)
-                isRelaxing -> startRelaxingTimer(millisRemaining)
-                isRestingBetweenSets -> startSetRestTimer(millisRemaining)
-            }
+            if (isHolding) startHoldingTimer(millisRemaining)
         }
 
-        val leftShoulder = landmarks[11]; val rightShoulder = landmarks[12]
-        val leftWrist = landmarks[15]; val rightWrist = landmarks[16]
+        val nose = landmarks[0]
+        val leftShoulder = landmarks[11]
+        val rightShoulder = landmarks[12]
 
-        // 2. 判定姿勢：
-        // 手部必須在肩膀後面 (z 軸) 且低於肩膀 (y 軸)。
-        // 當手腕被椅背擋住時，我們同時參考手肘 (13, 14) 的預測位置。
-        val zThreshold = 0.05f
+        // 2. 核心判定邏輯：計算挺胸深度差
+        // 計算雙肩的平均深度
+        val avgShoulderZ = (leftShoulder.z() + rightShoulder.z()) / 2f
+        // 算出肩膀與鼻子的深度差 (挺胸時，肩膀 Z 會比鼻子 Z 大很多)
+        val zDiff = avgShoulderZ - nose.z()
 
-        // 判斷左/右手臂（手腕或手肘）是否向後伸
-        val leftArmBack = leftWrist.z() > leftShoulder.z() + zThreshold ||
-                landmarks[13].z() > leftShoulder.z() + zThreshold
-        val rightArmBack = rightWrist.z() > rightShoulder.z() + zThreshold ||
-                landmarks[14].z() > rightShoulder.z() + zThreshold
+        // 設定挺胸門檻值 (建議在 0.04 ~ 0.08 之間測試，0.05 是常用的靈敏門檻)
+        val chestOutThreshold = 0.05f
+        val isPostureCorrect = zDiff > chestOutThreshold
 
-        val isWristsLow = leftWrist.y() > leftShoulder.y() &&
-                rightWrist.y() > rightShoulder.y()
-
-        val isPostureCorrect = leftArmBack && rightArmBack && isWristsLow
-
-        if (!isHolding && !isRelaxing && !isRestingBetweenSets && isPostureCorrect) {
+        // 3. 動作狀態機切換
+        if (!isHolding && isPostureCorrect) {
             startHoldingTimer()
         }
 
+        // 4. 準確度計算：挺胸越深 + 肩膀越水平 = 分數越高
         if (isHolding) {
             if (isPostureCorrect) {
-                val shoulderBalance = 1.0f - abs(leftShoulder.y() - rightShoulder.y())
-                totalAccuracyAccumulated += (shoulderBalance * 100f).coerceIn(0f, 100f)
+                // 水平度：1.0 代表兩肩齊高
+                val shoulderBalance = 1.0f - abs(leftShoulder.y() - rightShoulder.y()).coerceIn(0f, 1f)
+                // 挺胸深度分數：zDiff 越高分數越高
+                val depthScore = (zDiff / 0.1f).coerceIn(0f, 1f)
+
+                val currentFrameAccuracy = (shoulderBalance * 40f + depthScore * 60f)
+                totalAccuracyAccumulated += currentFrameAccuracy
             } else {
-                totalAccuracyAccumulated += 0f
+                totalAccuracyAccumulated += 30f // 姿勢跑掉時給予較低的保底分
+                speakOut("請維持挺胸並抓住椅背", 3000L)
             }
             accuracyTicks++
         }
 
         val status = when {
-            isRestingBetweenSets || isHolding || isRelaxing -> {
-                if (isHolding && !isPostureCorrect) "請維持挺胸並抓住椅背！"
+            isHolding -> {
+                if (!isPostureCorrect) "請維持挺胸！ ($currentTimerStatusText)"
                 else currentTimerStatusText
             }
             else -> "請往後抓住椅背並挺胸"
@@ -248,11 +284,13 @@ class ChairArmStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListe
 
     private fun startHoldingTimer(durationMs: Long = HOLD_TIME_MS) {
         isHolding = true
+        speakOut("請維持挺胸並抓住椅背")
         timer?.cancel()
         timer = object : CountDownTimer(durationMs, 1000) {
             override fun onTick(ms: Long) {
                 millisRemaining = ms
                 currentTimerStatusText = "挺胸維持中 (${ms/1000}s)"
+                binding.overlay.updateTestInfo(currentRep, currentSet, currentTimerStatusText, calculateAvgAccuracy(), isTestCompleted, "次數", 3)
             }
             override fun onFinish() {
                 isHolding = false
@@ -263,17 +301,24 @@ class ChairArmStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListe
 
     private fun startRelaxingTimer(durationMs: Long = RELAX_TIME_MS) {
         isRelaxing = true
+        speakOut("請放鬆")
         currentRep++ // 在進入放鬆階段時就增加次數
         timer?.cancel()
+        currentTimerStatusText = "請放鬆 (${durationMs / 1000}s)"
+        binding.overlay.updateTestInfo(currentRep, currentSet, currentTimerStatusText, calculateAvgAccuracy(), isTestCompleted, "次數", 3)
+
         timer = object : CountDownTimer(durationMs, 1000) {
             override fun onTick(ms: Long) {
                 millisRemaining = ms
-                currentTimerStatusText = "請放鬆 (${ms/1000}s)"
+                currentTimerStatusText = "請放鬆 (${ms / 1000}s)"
+                binding.overlay.updateTestInfo(currentRep, currentSet, currentTimerStatusText, calculateAvgAccuracy(), isTestCompleted, "次數", 3)
             }
             override fun onFinish() {
                 isRelaxing = false
                 if (currentRep >= TOTAL_REPS_PER_SET) {
                     if (currentSet < TOTAL_SETS) startSetRestTimer() else completeTest()
+                } else {
+                    currentTimerStatusText = "請往後抓住椅背並挺胸"
                 }
             }
         }.start()
@@ -281,22 +326,29 @@ class ChairArmStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListe
 
     private fun startSetRestTimer(durationMs: Long = SET_REST_TIME_MS) {
         isRestingBetweenSets = true
+        speakOut("休息時間")
         timer?.cancel()
+        currentTimerStatusText = "組間休息 (${durationMs / 1000}s)"
+        binding.overlay.updateTestInfo(currentRep, currentSet, currentTimerStatusText, calculateAvgAccuracy(), isTestCompleted, "次數", 3)
+
         timer = object : CountDownTimer(durationMs, 1000) {
             override fun onTick(ms: Long) {
                 millisRemaining = ms
-                currentTimerStatusText = "組間休息 (${ms/1000}s)"
+                currentTimerStatusText = "組間休息 (${ms / 1000}s)"
+                binding.overlay.updateTestInfo(currentRep, currentSet, currentTimerStatusText, calculateAvgAccuracy(), isTestCompleted, "次數", 3)
             }
             override fun onFinish() {
                 isRestingBetweenSets = false
                 currentSet++
                 currentRep = 0
+                currentTimerStatusText = "請往後抓住椅背並挺胸"
             }
         }.start()
     }
 
     private fun completeTest() {
         isTestCompleted = true
+        speakOut("測試完成")
         val finalAccuracy = calculateAvgAccuracy()
         // --- 封包傳送 ---
         val result = ExerciseResult(
@@ -332,6 +384,10 @@ class ChairArmStretchFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListe
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

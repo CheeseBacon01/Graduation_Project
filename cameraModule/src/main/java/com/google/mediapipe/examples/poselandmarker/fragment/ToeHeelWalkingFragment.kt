@@ -47,6 +47,7 @@ import kotlin.math.abs
 
 import android.app.AlertDialog
 import android.graphics.Color
+import android.os.SystemClock
 import android.text.InputType
 import android.util.TypedValue
 import android.widget.EditText
@@ -54,7 +55,10 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import android.text.SpannableStringBuilder
+import android.text.style.ForegroundColorSpan
 import com.google.mediapipe.examples.poselandmarker.ExerciseResult
+import android.speech.tts.TextToSpeech
 
 class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener {
 
@@ -72,6 +76,9 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
         private const val TOE_HEEL_Y_DIFF_THRESHOLD = 0.0008f // 判定踮腳或腳跟走的位移閾值
     }
 
+    private lateinit var tts: TextToSpeech
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
     private var _binding: FragmentToeHeelWalkingBinding? = null
     private val binding get() = _binding!!
 
@@ -107,6 +114,11 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
     @SuppressLint("MissingPermission")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        tts = TextToSpeech(requireContext()) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.TAIWAN
+            }
+        }
         backgroundExecutor = Executors.newSingleThreadExecutor()
 
         binding.btnStartTraining.setOnClickListener {
@@ -139,6 +151,39 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
             }
             bindCameraUseCases()
         }
+    }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs)) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
+        }
+    }
+
+    private fun updateCenterStatusText(text: String, baseColor: Int = Color.parseColor("#FF8A65")) {
+        val builder = SpannableStringBuilder(text)
+        val yellowKeywords = listOf("腳尖", "腳跟")
+
+        for (keyword in yellowKeywords) {
+            var startIndex = text.indexOf(keyword)
+            while (startIndex != -1) {
+                val endIndex = startIndex + keyword.length
+                builder.setSpan(
+                    ForegroundColorSpan(Color.YELLOW),
+                    startIndex,
+                    endIndex,
+                    SpannableStringBuilder.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                startIndex = text.indexOf(keyword, endIndex)
+            }
+        }
+
+        binding.tvCenterStatus.setTextColor(baseColor)
+        binding.tvCenterStatus.text = builder
     }
 
     private fun setUpCamera() {
@@ -193,7 +238,7 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
                 binding.viewFinder.post { setUpCamera() }
                 currentState = State.WAITING_FOR_DISTANCE
                 binding.tvCenterStatus.text = "請退後至\n大於 4 公尺處"
-                binding.tvCenterStatus.setTextColor(Color.WHITE)
+                speakOut("請退後至大於四公尺處", 4000L)
                 binding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 50f)
             }
             .show()
@@ -203,15 +248,19 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
         currentState = State.COUNTDOWN
         lifecycleScope.launch(Dispatchers.Main) {
             binding.tvCenterStatus.textSize = 100f
-            binding.tvCenterStatus.text = "3"
+            updateCenterStatusText("3")
+            speakOut("三")
             delay(1000)
-            binding.tvCenterStatus.text = "2"
+            updateCenterStatusText("2")
+            speakOut("二")
             delay(1000)
-            binding.tvCenterStatus.text = "1"
+            updateCenterStatusText("1")
+            speakOut("一")
             delay(1000)
-            binding.tvCenterStatus.text = "GO!"
+            updateCenterStatusText("GO!")
+            speakOut("開始")
             delay(800)
-            binding.tvCenterStatus.text = ""
+            updateCenterStatusText("")
             currentState = State.WALKING
         }
     }
@@ -246,8 +295,8 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
         val isVisible = requiredIndices.all { landmarks[it].visibility().orElse(0f) > VISIBILITY_THRESHOLD }
 
         if (!isVisible) {
-            binding.tvCenterStatus.text = "請確保全身入鏡"
-            binding.tvCenterStatus.setTextColor(Color.RED)
+            updateCenterStatusText("請確保全身入鏡", Color.RED)
+            speakOut("請進入畫面", 3000L)
             binding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 40f)
             return
         }
@@ -256,8 +305,8 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
         val leftHeel = landmarks[29]; val rightHeel = landmarks[30]
         val leftToe = landmarks[31]; val rightToe = landmarks[32]
         val isPoseCorrect = when (currentPhaseMode) {
-            Mode.TOE -> (leftHeel.y() < leftToe.y() - TOE_HEEL_Y_DIFF_THRESHOLD) && (rightHeel.y() < rightToe.y() - TOE_HEEL_Y_DIFF_THRESHOLD)
-            Mode.HEEL -> (leftToe.y() < leftHeel.y() - TOE_HEEL_Y_DIFF_THRESHOLD) && (rightToe.y() < rightHeel.y() - TOE_HEEL_Y_DIFF_THRESHOLD)
+            Mode.TOE -> (leftHeel.y() < leftToe.y() - 0.015f) && (rightHeel.y() < rightToe.y() - 0.015f)
+            Mode.HEEL -> (leftToe.y() < leftHeel.y() + 0.01f) && (rightToe.y() < rightHeel.y() + 0.01f)
         }
 
         // 3. 步數偵測 (修正：允許第一步偵測)
@@ -280,8 +329,8 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
 
         // 4. 更新大字顯示資訊 (步數 + 模式)
         val phaseTitle = if (currentPhaseMode == Mode.TOE) "腳尖走路" else "腳跟走路"
-        binding.tvCenterStatus.text = "$phaseTitle\n$stepsInCurrentPhase 步"
-        binding.tvCenterStatus.setTextColor(if (isPoseCorrect) Color.WHITE else Color.RED)
+        val baseColor = if (isPoseCorrect) Color.parseColor("#FF8A65") else Color.RED
+        updateCenterStatusText("$phaseTitle\n$stepsInCurrentPhase 步", baseColor)
         binding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 80f)
 
         // 4. 準確率計算
@@ -302,9 +351,11 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
         lastLeadingFoot = -1
         
         if (currentPhaseMode == Mode.TOE) {
+            speakOut("休息五秒，準備換腳跟走路")
             startTimer(SHORT_REST_MS, State.RESTING_SHORT, "休息中，準備換腳跟走路")
         } else {
             if (currentSet < TOTAL_SETS) {
+                speakOut("休息時間")
                 startTimer(LONG_REST_MS, State.RESTING_SET, "組間休息中")
             } else {
                 completeTest()
@@ -319,10 +370,8 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
             override fun onTick(ms: Long) {
                 val sec = ms / 1000
                 // 大字顯示休息資訊
-                binding.tvCenterStatus.text = "休息中\n$sec 秒"
-                binding.tvCenterStatus.setTextColor(Color.YELLOW)
+                updateCenterStatusText("休息中\n$sec 秒")
                 binding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 80f)
-
                 binding.overlay.updateTestInfo(stepsInCurrentPhase, currentSet, "$message ($sec s)", calculateAvgAccuracy(), isTestCompleted, "步數", 3)
             }
             override fun onFinish() {
@@ -339,8 +388,8 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
                 lastLeadingFoot = -1
                 currentState = State.WAITING_FOR_DISTANCE
 
-                binding.tvCenterStatus.text = "請退後至\n大於 4 公尺處"
-                binding.tvCenterStatus.setTextColor(Color.WHITE)
+                updateCenterStatusText("請退後至\n大於 4 公尺處")
+                speakOut("請退後至大於四公尺處", 4000L)
                 binding.tvCenterStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 50f)
             }
         }.start()
@@ -348,6 +397,7 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
 
     private fun completeTest() {
         isTestCompleted = true
+        speakOut("測驗完成")
         val finalAccuracy = calculateAvgAccuracy()
 
         // --- 封包傳送 ---
@@ -381,6 +431,10 @@ class ToeHeelWalkingFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListen
     }
 
     override fun onDestroyView() {
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()

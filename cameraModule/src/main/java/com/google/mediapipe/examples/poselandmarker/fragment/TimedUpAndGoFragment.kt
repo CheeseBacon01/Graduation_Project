@@ -53,7 +53,10 @@ class TimedUpAndGoFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener
 
     private var currentState = TugAutoState.INPUT_HEIGHT
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var tts: TextToSpeech? = null
+    private lateinit var tts: TextToSpeech
+    private var isTtsReady = false
+    private var lastSpeakTime = 0L
+    private var lastSpeechText = ""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentTimedUpAndGoBinding.inflate(inflater, container, false)
@@ -66,7 +69,8 @@ class TimedUpAndGoFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener
         // 初始化語音引擎
         tts = TextToSpeech(requireContext()) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                tts?.language = Locale.TRADITIONAL_CHINESE
+                tts.language = Locale.TAIWAN
+                isTtsReady = true
             }
         }
 
@@ -105,6 +109,18 @@ class TimedUpAndGoFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener
             bindCameraUseCases()
         }
     }
+
+    private fun speakOut(text: String, throttleMs: Long = 0L) {
+        val currentTime = SystemClock.uptimeMillis()
+        if (isTtsReady && (text != lastSpeechText || (currentTime - lastSpeakTime > throttleMs))) {
+            if (::tts.isInitialized) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            }
+            lastSpeakTime = currentTime
+            lastSpeechText = text
+        }
+    }
+
 
     private fun showHeightDialog() {
         currentState = TugAutoState.INPUT_HEIGHT
@@ -175,6 +191,9 @@ class TimedUpAndGoFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener
                             currentState = TugAutoState.WAITING_FOR_SIT
                             // 距離大於 3m 後，改變中央大字體提示
                             binding.tvCenterStatus.text = "請坐下"
+                            speakOut("請坐下")
+                        } else {
+                            speakOut("請退後至三公尺處", 3000L)
                         }
                     }
                     TugAutoState.WAITING_FOR_SIT -> {
@@ -185,6 +204,8 @@ class TimedUpAndGoFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener
                             binding.tvCenterStatus.text = "準備起步..."
                             // 觸發隨機等待語音 (傳入當下距離作為計算終點線的基準)
                             startRandomCountdown(currentDist)
+                        } else {
+                            speakOut("請坐下", 3000L)
                         }
                     }
                     TugAutoState.COUNTDOWN_TO_START -> {
@@ -198,14 +219,14 @@ class TimedUpAndGoFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener
                         // 走到終點線附近 (容錯 0.6m) 視為完成去程
                         if (currentDist <= binding.overlay.targetDistance + 0.6f && currentDist > 0) {
                             currentState = TugAutoState.TURNING_BACK
-
-                            // 【重點修改】：到達折返點後，將 AR 引導跑道與紅線關閉隱藏！
                             binding.overlay.isTestingGait = false
+                            speakOut("回原位坐好")
                         }
                     }
                     TugAutoState.TURNING_BACK -> {
                         currentSeconds = (SystemClock.elapsedRealtime() - startTime) / 1000f
                         statusMsg = "請轉身走回椅子並坐下"
+                        speakOut("回原位坐好",3000L)
 
                         // 距離大於 2.5m 且再次偵測到坐下姿勢，即完成測試
                         if (currentDist >= 2.5f && isSitting(landmarks)) {
@@ -257,7 +278,7 @@ class TimedUpAndGoFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener
         mainHandler.postDelayed({
             if (currentState == TugAutoState.COUNTDOWN_TO_START) {
                 // 1. 發出起步走聲音
-                tts?.speak("起步走", TextToSpeech.QUEUE_FLUSH, null, null)
+                speakOut("起步走")
 
                 // 2. 畫出 3m 終點折返線
                 binding.overlay.targetDistance = max(0.2f, chairDistance - 3.0f)
@@ -279,11 +300,12 @@ class TimedUpAndGoFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener
         binding.overlay.isTestingGait = false
 
         if (isUnable) {
+            speakOut("無法執行")
             binding.dialogLayout.visibility = View.VISIBLE
             binding.tvDialogResult.text = "無法執行 (未獲得分數)"
             return
         }
-
+        speakOut("測驗完成")
         val duration = (SystemClock.elapsedRealtime() - startTime) / 1000f
         val resultText = if (duration > 20f) "超過 20 秒" else "未超過 20 秒"
 
@@ -299,6 +321,7 @@ class TimedUpAndGoFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener
         binding.overlay.isTestingGait = false
         currentSeconds = 0f
         isTesting = false
+        lastSpeechText = ""
 
         if (askHeight) {
             showHeightDialog()
@@ -313,9 +336,11 @@ class TimedUpAndGoFragment : Fragment(), PoseLandmarkerHelper.LandmarkerListener
 
     override fun onDestroyView() {
         mainHandler.removeCallbacksAndMessages(null)
-        tts?.stop()
-        tts?.shutdown()
-
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
+        isTtsReady = false
         _binding = null
         super.onDestroyView()
         backgroundExecutor.shutdown()
